@@ -1,0 +1,32 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv/
+env/
+venv/
+ENV/
+
+# Project specific output/temp folders
+temp/
+transcription_results/
+results/
+
+# Media files (ignore large video/audio by default)
+*.mp4
+*.mov
+*.avi
+*.mp3
+*.wav
+*.pcm
+
+# OS generated
+Thumbs.db
+Desktop.ini
+
+# IDEs
+.vscode/
+.idea/

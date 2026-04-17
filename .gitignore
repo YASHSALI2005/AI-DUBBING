@@ -1,0 +1,20 @@
+# Environments
+venv/
+.venv/
+env/
+
+# Large Media Files (Root level clones)
+*.mp3
+*.wav
+*.webm
+*.mp4
+*.mov
+*.avi
+
+# OS generated
+Thumbs.db
+Desktop.ini
+
+# IDEs
+.vscode/
+.idea/
