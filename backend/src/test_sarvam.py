@@ -1,9 +1,13 @@
 import os
 import json
 from sarvamai import SarvamAI
+from dotenv import load_dotenv
 
-# Initialize the client
-client = SarvamAI(api_subscription_key="sk_h4mpdao3_s1DBD6ZHLQQC5FpPLsQS0lXC")
+# Load variables from .env
+load_dotenv()
+
+# Initialize the client using environment variable
+client = SarvamAI(api_subscription_key=os.getenv("SARVAM_API_KEY"))
 
 # 1. Create an asynchronous batch job
 # 1. Create an asynchronous batch job

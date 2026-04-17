@@ -31,8 +31,8 @@ app.add_middleware(
 )
 
 # Initialize Clients
-SARVAM_KEY = "sk_h4mpdao3_s1DBD6ZHLQQC5FpPLsQS0lXC" # From test.py
-ELEVEN_KEY = "sk_21346e51dedd54805124b6a7781240f96c79eccbc0d6f6d0" # From generate.py
+SARVAM_KEY = os.getenv("SARVAM_API_KEY")
+ELEVEN_KEY = os.getenv("ELEVEN_API_KEY")
 
 sarvam_client = SarvamAI(api_subscription_key=SARVAM_KEY)
 
