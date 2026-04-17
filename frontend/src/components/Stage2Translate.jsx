@@ -50,6 +50,9 @@ export default function Stage2Translate({ apiBase, blocks, sourceLang, onComplet
         source_lang: sourceLang
       });
       setTranslatedBlocks(res.data.blocks);
+      if (res.data.failed_block_count > 0) {
+        alert(`Translation completed with ${res.data.failed_block_count} fallback block(s). You can manually edit them below.`);
+      }
       setHasTranslated(true);
     } catch (err) {
         console.error(err);

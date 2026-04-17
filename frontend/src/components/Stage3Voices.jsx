@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import axios from 'axios';
-import { Mic, Loader2, Wand2, PlayCircle, X } from 'lucide-react';
+import { Mic, Loader2, Wand2, PlayCircle, X, Film } from 'lucide-react';
 
 // Exact speakers supported by Sarvam bulbul:v3 (48kHz premium)
 const AVAILABLE_VOICES = [
@@ -124,6 +124,9 @@ export default function Stage3Voices({ apiBase, blocks, videoFile, targetLang = 
       };
       
       const res = await axios.post(`${apiBase}/synthesize`, payload);
+      if (res.data.failed_block_count > 0) {
+        alert(`Dub generated with ${res.data.failed_block_count} skipped block(s) due to API limits. Try again for a cleaner result.`);
+      }
       onComplete(res.data.audio_url, res.data.video_url);
     } catch (err) {
         console.error(err);

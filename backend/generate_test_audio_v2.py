@@ -1,9 +1,15 @@
 import os
 from elevenlabs.client import ElevenLabs
 from pydub import AudioSegment
+from dotenv import load_dotenv
+
+load_dotenv()
+api_key = os.getenv("ELEVEN_API_KEY")
+if not api_key:
+    raise RuntimeError("Missing ELEVEN_API_KEY in environment.")
 
 # Initialize ElevenLabs
-eleven_client = ElevenLabs(api_key="sk_21346e51dedd54805124b6a7781240f96c79eccbc0d6f6d0")
+eleven_client = ElevenLabs(api_key=api_key)
 
 # ==========================================
 # 1. GENERATION & CLEANUP FUNCTION
