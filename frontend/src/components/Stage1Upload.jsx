@@ -1,13 +1,88 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 import { Upload, FileAudio, Loader2 } from 'lucide-react';
+import {
+  estimateSttSecondsFromDuration,
+  formatEtaRange,
+  formatElapsedClock,
+} from '../timeEstimates';
 
 export default function Stage1Upload({ apiBase, onComplete }) {
   const [file, setFile] = useState(null);
   const [sourceLang, setSourceLang] = useState('hi-IN');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [timingCfg, setTimingCfg] = useState(null);
+  const [videoDurationSec, setVideoDurationSec] = useState(null);
+  const [elapsedSec, setElapsedSec] = useState(0);
   const fileInputRef = useRef(null);
+  const uploadStartRef = useRef(null);
+  const elapsedTimerRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await axios.get(`${apiBase}/config`);
+        if (!cancelled && res.data?.timing) {
+          setTimingCfg(res.data.timing);
+        }
+      } catch {
+        /* Estimators fall back to defaults when config is unavailable. */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase]);
+
+  useEffect(() => {
+    if (!file) {
+      setVideoDurationSec(null);
+      return undefined;
+    }
+    let cancelled = false;
+    const url = URL.createObjectURL(file);
+    const v = document.createElement('video');
+    v.preload = 'metadata';
+    v.onloadedmetadata = () => {
+      if (cancelled) return;
+      const d = v.duration;
+      setVideoDurationSec(Number.isFinite(d) && d > 0 ? d : null);
+    };
+    v.onerror = () => {
+      if (!cancelled) setVideoDurationSec(null);
+    };
+    v.src = url;
+    return () => {
+      cancelled = true;
+      v.removeAttribute('src');
+      URL.revokeObjectURL(url);
+    };
+  }, [file]);
+
+  useEffect(() => {
+    if (!loading) {
+      if (elapsedTimerRef.current) {
+        clearInterval(elapsedTimerRef.current);
+        elapsedTimerRef.current = null;
+      }
+      setElapsedSec(0);
+      return undefined;
+    }
+    uploadStartRef.current = Date.now();
+    elapsedTimerRef.current = setInterval(() => {
+      if (uploadStartRef.current) {
+        setElapsedSec((Date.now() - uploadStartRef.current) / 1000);
+      }
+    }, 500);
+    return () => {
+      if (elapsedTimerRef.current) {
+        clearInterval(elapsedTimerRef.current);
+        elapsedTimerRef.current = null;
+      }
+    };
+  }, [loading]);
 
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
@@ -27,9 +102,13 @@ export default function Stage1Upload({ apiBase, onComplete }) {
     }
 
     try {
-      const res = await axios.post(`${apiBase}/upload`, formData);
+      const res = await axios.post(`${apiBase}/upload`, formData, {
+        // STT can run a long time; 0 = no axios-side cap (browser/OS may still limit).
+        timeout: 0,
+      });
       // Ensure we have a uniform block structure
       const rawData = res.data.data;
+      const detectedLang = rawData?.language_code || rawData?.language || rawData?.detected_language_code || null;
       let blocks = [];
       // Use the 'diarized_transcript.entries' array if provided by Sarvam STT
       const entries = rawData?.diarized_transcript?.entries;
@@ -55,16 +134,27 @@ export default function Stage1Upload({ apiBase, onComplete }) {
               { id: 2, speakers: ['S2'], transcript: "It is great to be here.", timestamps: [2500, 4500] }
           ];
       }
-      onComplete(blocks, file, res.data.session_id, sourceLang);
+      const resolvedSourceLang = sourceLang === 'auto' ? (detectedLang || 'hi-IN') : sourceLang;
+      onComplete(blocks, file, res.data.session_id, resolvedSourceLang);
     } catch (err) {
       console.error(err);
-      const detail = err?.response?.data?.detail || err.message || 'Unknown error';
+      const code = err?.code;
+      const noResponse = !err?.response;
+      let detail = err?.response?.data?.detail || err.message || 'Unknown error';
+      if (noResponse && (code === 'ERR_NETWORK' || err.message === 'Network Error')) {
+        detail =
+          'Connection was lost (often net::ERR_CONNECTION_RESET). The server may have stopped mid-request — ' +
+          'check the uvicorn terminal for a crash or traceback. Long STT jobs can also hit OS or proxy limits; ' +
+          'try a shorter clip or restart the backend.';
+      }
       setError(`Upload/STT failed: ${detail}`);
       // Do NOT pass mock data - show the real error to the user
     } finally {
       setLoading(false);
     }
   };
+
+  const sttEtaSeconds = estimateSttSecondsFromDuration(videoDurationSec, timingCfg);
 
   return (
     <div className="text-center">
@@ -120,6 +210,13 @@ export default function Stage1Upload({ apiBase, onComplete }) {
 
       {error && <p style={{color: '#ef4444', marginTop: '1rem'}}>{error}</p>}
 
+      {file && !loading && Number.isFinite(videoDurationSec) && videoDurationSec > 0 && (
+        <p style={{ color: 'var(--text-muted)', marginTop: '1rem', fontSize: '0.9rem' }}>
+          Detected video length {Math.ceil(videoDurationSec / 60)} min — typical STT wait{' '}
+          <strong>{formatEtaRange(sttEtaSeconds)}</strong> (rough guide; queue load varies).
+        </p>
+      )}
+
       <div style={{marginTop: '2rem'}}>
         <button 
           className="btn" 
@@ -133,6 +230,23 @@ export default function Stage1Upload({ apiBase, onComplete }) {
             </>
           ) : 'Upload & Prepare for Translation'}
         </button>
+        {loading && (
+          <p
+            style={{
+              color: 'var(--text-muted)',
+              marginTop: '1rem',
+              fontSize: '0.92rem',
+              maxWidth: '420px',
+              marginLeft: 'auto',
+              marginRight: 'auto',
+            }}
+          >
+            Estimated STT (diarized batch){' '}
+            <strong>{formatEtaRange(sttEtaSeconds)}</strong>
+            {' · '}
+            Elapsed <strong>{formatElapsedClock(elapsedSec)}</strong>
+          </p>
+        )}
       </div>
     </div>
   );

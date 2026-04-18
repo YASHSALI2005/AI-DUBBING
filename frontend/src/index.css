@@ -180,7 +180,7 @@ body {
   color: var(--text-muted);
 }
 
-select, input, textarea {
+select, input:not([type='checkbox']), textarea {
   width: 100%;
   background: rgba(10, 10, 10, 0.8);
   border: 1px solid var(--border-light);
@@ -192,7 +192,7 @@ select, input, textarea {
   transition: all 0.3s;
 }
 
-select:focus, input:focus, textarea:focus {
+select:focus, input:not([type='checkbox']):focus, textarea:focus {
   border-color: var(--primary);
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }

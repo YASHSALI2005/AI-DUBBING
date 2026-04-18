@@ -13,5 +13,5 @@ def download_yt_video(youtube_url, output_filename="test_video"):
         ydl.download([youtube_url])
     print("Done!")
 
-target_url = "https://youtu.be/eo0X8KVyP4o?si=ARLqWYcVMz-MzwLM"
-download_yt_video(target_url, "my_video2")
+target_url = "https://youtu.be/MWtEeuNatKw?si=i4Jy_fZRZF5uQrmH"
+download_yt_video(target_url, "my_video4")

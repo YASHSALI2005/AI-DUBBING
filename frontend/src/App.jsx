@@ -5,6 +5,7 @@ import Stage3Voices from './components/Stage3Voices';
 import AudioPlayer from './components/AudioPlayer';
 
 const API_BASE = 'http://localhost:8000/api';
+const APP_STATE_KEY = 'vrfilms_dubbing_state_v1';
 
 function App() {
   const [currentStage, setCurrentStage] = useState(1);
@@ -16,6 +17,68 @@ function App() {
   const [sourceLang, setSourceLang] = useState('hi-IN');
   const [sessionId, setSessionId] = useState(null);
   const [finalVideoUrl, setFinalVideoUrl] = useState(null);
+  const [experimentMode, setExperimentMode] = useState('translated_sarvam');
+
+  useEffect(() => {
+    try {
+      const stageFromHash = Number((window.location.hash || '').replace('#stage', ''));
+      const raw = window.localStorage.getItem(APP_STATE_KEY);
+      if (!raw) {
+        if ([1, 2, 3, 4].includes(stageFromHash)) {
+          setCurrentStage(stageFromHash);
+        }
+        return;
+      }
+
+      const saved = JSON.parse(raw);
+      setTranscriptBlocks(Array.isArray(saved.transcriptBlocks) ? saved.transcriptBlocks : []);
+      setTranslatedBlocks(Array.isArray(saved.translatedBlocks) ? saved.translatedBlocks : []);
+      setFinalAudioUrl(saved.finalAudioUrl || null);
+      setSelectedLang(saved.selectedLang || 'hi-IN');
+      setSourceLang(saved.sourceLang || 'hi-IN');
+      setSessionId(saved.sessionId || null);
+      setFinalVideoUrl(saved.finalVideoUrl || null);
+      setExperimentMode(saved.experimentMode || 'translated_sarvam');
+
+      const persistedStage = Number(saved.currentStage) || 1;
+      const stage = [1, 2, 3, 4].includes(stageFromHash) ? stageFromHash : persistedStage;
+      setCurrentStage(stage);
+      window.history.replaceState({ stage }, `Stage ${stage}`, `#stage${stage}`);
+    } catch (err) {
+      console.warn('Could not restore persisted app state.', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        APP_STATE_KEY,
+        JSON.stringify({
+          currentStage,
+          transcriptBlocks,
+          translatedBlocks,
+          finalAudioUrl,
+          selectedLang,
+          sourceLang,
+          sessionId,
+          finalVideoUrl,
+          experimentMode,
+        })
+      );
+    } catch (err) {
+      console.warn('Could not persist app state.', err);
+    }
+  }, [
+    currentStage,
+    transcriptBlocks,
+    translatedBlocks,
+    finalAudioUrl,
+    selectedLang,
+    sourceLang,
+    sessionId,
+    finalVideoUrl,
+    experimentMode,
+  ]);
 
   // Sync state with browser history so "Back" works
   useEffect(() => {
@@ -47,9 +110,10 @@ function App() {
     navigateTo(2);
   };
 
-  const handleTranslated = (blocks, lang) => {
+  const handleTranslated = (blocks, lang, expMode) => {
     setTranslatedBlocks(blocks);
     if (lang) setSelectedLang(lang);
+    if (expMode) setExperimentMode(expMode);
     navigateTo(3);
   };
 
@@ -64,6 +128,14 @@ function App() {
     setFinalAudioUrl(null);
     setFinalVideoUrl(null);
     setVideoFile(null);
+    setTranscriptBlocks([]);
+    setTranslatedBlocks([]);
+    setExperimentMode('translated_sarvam');
+    try {
+      window.localStorage.removeItem(APP_STATE_KEY);
+    } catch (err) {
+      console.warn('Could not clear persisted app state.', err);
+    }
     window.history.pushState({ stage: 1 }, "Stage 1", "#stage1");
     setCurrentStage(1);
   };
@@ -96,6 +168,8 @@ function App() {
             apiBase={API_BASE} 
             blocks={transcriptBlocks} 
             sourceLang={sourceLang}
+            sessionId={sessionId}
+            videoFile={videoFile}
             onComplete={handleTranslated} 
           />
         )}
@@ -106,6 +180,7 @@ function App() {
             blocks={translatedBlocks} 
             videoFile={videoFile}
             targetLang={selectedLang}
+            experimentMode={experimentMode}
             sessionId={sessionId}
             finalVideoUrl={finalVideoUrl}
             onComplete={handleSynthesized}
