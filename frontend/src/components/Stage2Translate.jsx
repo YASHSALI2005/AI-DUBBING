@@ -273,7 +273,7 @@ export default function Stage2Translate({ apiBase, blocks, sourceLang, sessionId
         fontSize: '0.92rem',
         textAlign: 'center'
       }}>
-        Dubbing target that will be sent to ElevenLabs: <strong>{targetLangName}</strong> (<code>{normalizedDubbingTargetCode}</code>)
+        Target script language (Gemini TTS / metadata): <strong>{targetLangName}</strong> (<code>{normalizedDubbingTargetCode}</code>)
       </div>
 
       {hasTranslated && lastRunSummary && (
