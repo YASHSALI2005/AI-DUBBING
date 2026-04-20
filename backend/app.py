@@ -870,6 +870,14 @@ async def synthesize_audio(req: SynthesisRequest):
             voice_map_dict = {m.speaker_id: m.voice_id for m in req.voice_map}
             failed_blocks = []
 
+            # Pre-compute all block start times so we can derive each block's
+            # available time window and hard-clip synthesized audio to it.
+            block_start_times_ms = []
+            for block in req.transcript_blocks:
+                ts = block.get("timestamps", [])
+                start_ms = float(ts[0]) * 1000 if isinstance(ts, list) and ts else 0.0
+                block_start_times_ms.append(start_ms)
+
             for index, block in enumerate(req.transcript_blocks):
                 text = (block.get("transcript") or "").strip()
                 if not text:
@@ -881,13 +889,34 @@ async def synthesize_audio(req: SynthesisRequest):
                 sarvam_speaker = voice_map_dict.get(primary_speaker, SARVAM_FALLBACK_SPEAKER)
                 if sarvam_speaker == "auto":
                     sarvam_speaker = SARVAM_FALLBACK_SPEAKER
-                start_time = float(timestamps[0]) * 1000 if isinstance(timestamps, list) and timestamps else 0
+                start_time_ms = block_start_times_ms[index]
+
+                # Determine max allowed duration for this block:
+                # It ends when the next block starts (or at the end of the track).
+                if index + 1 < len(block_start_times_ms):
+                    # Find the next block that actually has content
+                    next_start_ms = block_start_times_ms[index + 1]
+                else:
+                    next_start_ms = float(target_ms)
+                max_duration_ms = max(100, next_start_ms - start_time_ms)
 
                 clip_path = os.path.join(session_dir, f"exp_clip_{index}.wav")
                 try:
                     print(f"[Experiment] Synthesizing block {index}: {text[:40]}...")
                     audio_seg = generate_voice_clip_sarvam(text, sarvam_speaker, req.target_lang, clip_path)
-                    mixed_audio = mixed_audio.overlay(audio_seg, position=start_time)
+
+                    clip_len_ms = len(audio_seg)
+                    if clip_len_ms > max_duration_ms:
+                        # Hard-clip the segment to the available window.
+                        # Apply a short fade-out (up to 80 ms) to avoid a harsh cut.
+                        fade_ms = min(80, max_duration_ms // 4)
+                        audio_seg = audio_seg[:max_duration_ms].fade_out(fade_ms)
+                        print(
+                            f"[Experiment] Block {index} clipped from {clip_len_ms}ms "
+                            f"to {max_duration_ms}ms to avoid overlap with next speaker."
+                        )
+
+                    mixed_audio = mixed_audio.overlay(audio_seg, position=int(start_time_ms))
                 except Exception as exc:
                     print(f"[Experiment] Synthesis failed for block {index}: {exc}")
                     failed_blocks.append({"index": index, "error": str(exc)})

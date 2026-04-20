@@ -9,7 +9,7 @@ const Login = ({ onLogin }) => {
   const handleSubmit = (e) => {
     e.preventDefault();
     // Fixed dummy credentials
-    if (username === 'admin' && password === 'admin') {
+    if (username === 'admin' && password === 'Vrfilms@2026') {
       onLogin();
     } else {
       setError('Invalid username or password');
