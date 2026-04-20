@@ -12,6 +12,7 @@ import {
 const TARGET_LANGUAGES = [
   { code: 'en-IN', name: 'English' },
   { code: 'hi-IN', name: 'Hindi' },
+  { code: 'es-IN', name: 'Marathi' },
   { code: 'bn-IN', name: 'Bengali' },
   { code: 'ta-IN', name: 'Tamil' },
   { code: 'te-IN', name: 'Telugu' },

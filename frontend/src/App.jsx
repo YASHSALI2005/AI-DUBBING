@@ -1,13 +1,18 @@
 import React, { useState, useEffect } from 'react';
+import { LogOut } from 'lucide-react';
 import Stage1Upload from './components/Stage1Upload';
 import Stage2Translate from './components/Stage2Translate';
 import Stage3Voices from './components/Stage3Voices';
 import AudioPlayer from './components/AudioPlayer';
+import Login from './components/Login';
 
 const API_BASE = 'http://localhost:8000/api';
 const APP_STATE_KEY = 'vrfilms_dubbing_state_v1';
 
 function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    return localStorage.getItem('vrfilms_auth_state_v1') === 'true';
+  });
   const [currentStage, setCurrentStage] = useState(1);
   const [transcriptBlocks, setTranscriptBlocks] = useState([]);
   const [translatedBlocks, setTranslatedBlocks] = useState([]);
@@ -140,9 +145,32 @@ function App() {
     setCurrentStage(1);
   };
 
+  const handleLogin = () => {
+    setIsAuthenticated(true);
+    localStorage.setItem('vrfilms_auth_state_v1', 'true');
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    localStorage.removeItem('vrfilms_auth_state_v1');
+  };
+
+  if (!isAuthenticated) {
+    return <Login onLogin={handleLogin} />;
+  }
+
   return (
     <div className="app-container">
-      <header className="header">
+      <header className="header" style={{ position: 'relative' }}>
+        <button 
+          onClick={handleLogout}
+          className="btn btn-secondary" 
+          style={{ position: 'absolute', right: 0, top: 0, padding: '0.5rem 1rem' }}
+          title="Sign Out"
+        >
+          <LogOut size={18} />
+          <span style={{ marginLeft: '0.5rem' }}>Sign Out</span>
+        </button>
         <h1>VR FILMS AI Dubbing Tool</h1>
         <p>Automated Video Localization Pipeline</p>
       </header>
