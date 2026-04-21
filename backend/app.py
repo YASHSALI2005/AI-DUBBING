@@ -1055,6 +1055,210 @@ async def synthesize_audio(req: SynthesisRequest):
         raise HTTPException(status_code=500, detail=str(e))
         
 
+# -----------------------------------------
+# Direct ElevenLabs End-to-End Dub Endpoints
+# -----------------------------------------
+
+ELEVEN_DIRECT_DUB_LANGUAGES = [
+    {"code": "hi",  "name": "Hindi",       "flag": "🇮🇳"},
+    {"code": "en",  "name": "English",     "flag": "🇬🇧"},
+    {"code": "es",  "name": "Spanish",     "flag": "🇪🇸"},
+    {"code": "fr",  "name": "French",      "flag": "🇫🇷"},
+    {"code": "de",  "name": "German",      "flag": "🇩🇪"},
+    {"code": "ja",  "name": "Japanese",    "flag": "🇯🇵"},
+    {"code": "zh",  "name": "Chinese",     "flag": "🇨🇳"},
+    {"code": "ar",  "name": "Arabic",      "flag": "🇸🇦"},
+    {"code": "pt",  "name": "Portuguese",  "flag": "🇧🇷"},
+    {"code": "it",  "name": "Italian",     "flag": "🇮🇹"},
+    {"code": "ko",  "name": "Korean",      "flag": "🇰🇷"},
+    {"code": "nl",  "name": "Dutch",       "flag": "🇳🇱"},
+    {"code": "pl",  "name": "Polish",      "flag": "🇵🇱"},
+    {"code": "ru",  "name": "Russian",     "flag": "🇷🇺"},
+    {"code": "tr",  "name": "Turkish",     "flag": "🇹🇷"},
+    {"code": "sv",  "name": "Swedish",     "flag": "🇸🇪"},
+    {"code": "ta",  "name": "Tamil",       "flag": "🇮🇳"},
+    {"code": "te",  "name": "Telugu",      "flag": "🇮🇳"},
+    {"code": "id",  "name": "Indonesian",  "flag": "🇮🇩"},
+    {"code": "ms",  "name": "Malay",       "flag": "🇲🇾"},
+    {"code": "uk",  "name": "Ukrainian",   "flag": "🇺🇦"},
+    {"code": "el",  "name": "Greek",       "flag": "🇬🇷"},
+    {"code": "vi",  "name": "Vietnamese",  "flag": "🇻🇳"},
+    {"code": "fil", "name": "Filipino",    "flag": "🇵🇭"},
+    {"code": "ro",  "name": "Romanian",    "flag": "🇷🇴"},
+    {"code": "hu",  "name": "Hungarian",   "flag": "🇭🇺"},
+    {"code": "cs",  "name": "Czech",       "flag": "🇨🇿"},
+    {"code": "da",  "name": "Danish",      "flag": "🇩🇰"},
+    {"code": "fi",  "name": "Finnish",     "flag": "🇫🇮"},
+    {"code": "no",  "name": "Norwegian",   "flag": "🇳🇴"},
+    {"code": "sk",  "name": "Slovak",      "flag": "🇸🇰"},
+    {"code": "bg",  "name": "Bulgarian",   "flag": "🇧🇬"},
+]
+
+
+class DirectDubFinalizeRequest(BaseModel):
+    session_id: str
+    dubbing_id: str
+    target_lang: str
+
+
+@app.get("/api/dub-direct/languages")
+async def dub_direct_languages():
+    return JSONResponse(content={"languages": ELEVEN_DIRECT_DUB_LANGUAGES})
+
+
+@app.post("/api/dub-direct/start")
+async def dub_direct_start(
+    file: UploadFile = File(...),
+    target_lang: str = Form(...),
+    source_lang: str = Form("auto"),
+    num_speakers: int = Form(0),
+    disable_voice_cloning: bool = Form(False),
+):
+    """
+    Start an end-to-end ElevenLabs dubbing job.
+    Saves the uploaded file to a new session directory, submits to ElevenLabs,
+    and returns session_id + dubbing_id immediately for the client to poll.
+    """
+    cleanup_expired_sessions()
+
+    session_id = str(uuid.uuid4())
+    session_dir = os.path.join(TEMP_DIR, session_id)
+    os.makedirs(session_dir, exist_ok=True)
+
+    original_filename = file.filename or "input.mp4"
+    ext = os.path.splitext(original_filename)[1].lower() or ".mp4"
+    file_path = os.path.join(session_dir, f"input{ext}")
+
+    # Stream uploaded file to disk
+    try:
+        with open(file_path, "wb") as out:
+            while True:
+                chunk = await file.read(4 * 1024 * 1024)
+                if not chunk:
+                    break
+                out.write(chunk)
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to save upload: {str(e)}")
+
+    # Submit dubbing job to ElevenLabs (blocking I/O → thread)
+    try:
+        create_res = await asyncio.to_thread(
+            eleven_post_dubbing,
+            file_path=file_path,
+            target_lang=target_lang,
+            source_lang=source_lang,
+            num_speakers=num_speakers,
+            disable_voice_cloning=disable_voice_cloning,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to create dubbing job: {str(e)}")
+
+    dubbing_id = create_res.get("dubbing_id")
+    if not dubbing_id:
+        raise HTTPException(status_code=500, detail=f"Invalid ElevenLabs response: {create_res}")
+
+    # Persist metadata so /finalize can look it up
+    meta = {
+        "dubbing_id": dubbing_id,
+        "target_lang": target_lang,
+        "source_lang": source_lang,
+        "file_path": file_path,
+        "is_video": ext in (".mp4", ".mov", ".avi", ".mkv", ".webm"),
+    }
+    with open(os.path.join(session_dir, "meta.json"), "w") as mf:
+        json.dump(meta, mf)
+
+    print(f"[DirectDub] Started dubbing_id={dubbing_id} session={session_id} lang={target_lang}")
+    return JSONResponse(content={
+        "session_id": session_id,
+        "dubbing_id": dubbing_id,
+        "status": "pending",
+    })
+
+
+@app.get("/api/dub-direct/status/{dubbing_id}")
+async def dub_direct_status(dubbing_id: str):
+    """Proxy the ElevenLabs dubbing status so the browser can poll it."""
+    try:
+        status_payload = await asyncio.to_thread(eleven_get_dubbing, dubbing_id)
+        return JSONResponse(content={
+            "dubbing_id": dubbing_id,
+            "status": status_payload.get("status", "unknown"),
+            "expected_duration_sec": status_payload.get("expected_duration_sec"),
+        })
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _dub_direct_finalize_sync(session_id: str, dubbing_id: str, target_lang: str) -> Dict[str, Any]:
+    """Download the dubbed content and save it to the session directory."""
+    session_dir = os.path.join(TEMP_DIR, session_id)
+    if not os.path.isdir(session_dir):
+        raise HTTPException(status_code=404, detail="Session not found.")
+
+    meta_path = os.path.join(session_dir, "meta.json")
+    is_video = False
+    if os.path.exists(meta_path):
+        with open(meta_path, "r") as mf:
+            meta = json.load(mf)
+        is_video = meta.get("is_video", False)
+
+    # Download dubbed output from ElevenLabs
+    dubbed_bytes = eleven_download_dubbed_file(dubbing_id, target_lang)
+    audio_url = None
+    video_url = None
+
+    if is_video:
+        final_mp4 = os.path.join(session_dir, "final.mp4")
+        with open(final_mp4, "wb") as f:
+            f.write(dubbed_bytes)
+        video_url = f"/api/video/{session_id}"
+        # Extract WAV for audio player
+        output_wav = os.path.join(session_dir, "final.wav")
+        cmd = ["ffmpeg", "-y", "-i", final_mp4, "-vn", "-acodec", "pcm_s16le", output_wav]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0:
+            audio_url = f"/api/audio/{session_id}"
+        else:
+            print(f"[DirectDub] WAV extraction warning: {result.stderr[:300]}")
+    else:
+        output_mp3 = os.path.join(session_dir, "dubbed.mp3")
+        with open(output_mp3, "wb") as f:
+            f.write(dubbed_bytes)
+        output_wav = os.path.join(session_dir, "final.wav")
+        cmd = ["ffmpeg", "-y", "-i", output_mp3, "-acodec", "pcm_s16le", output_wav]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0:
+            audio_url = f"/api/audio/{session_id}"
+
+    print(f"[DirectDub] Finalized session={session_id} audio={audio_url} video={video_url}")
+    return {"audio_url": audio_url, "video_url": video_url, "dubbing_id": dubbing_id}
+
+
+@app.post("/api/dub-direct/finalize")
+async def dub_direct_finalize(req: DirectDubFinalizeRequest):
+    """Download the ElevenLabs dubbed result and return playback/download URLs."""
+    try:
+        result = await asyncio.to_thread(
+            _dub_direct_finalize_sync,
+            req.session_id,
+            req.dubbing_id,
+            req.target_lang,
+        )
+        return JSONResponse(content=result)
+    except HTTPException:
+        raise
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/audio/{session_id}")
 async def get_audio(session_id: str):
     cleanup_expired_sessions()

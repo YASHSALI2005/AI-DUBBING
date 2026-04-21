@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { LogOut } from 'lucide-react';
+import { LogOut, Zap, GitBranch } from 'lucide-react';
 import Stage1Upload from './components/Stage1Upload';
 import Stage2Translate from './components/Stage2Translate';
 import Stage3Voices from './components/Stage3Voices';
 import AudioPlayer from './components/AudioPlayer';
 import Login from './components/Login';
+import DirectDub from './components/DirectDub';
 
 const API_BASE = 'http://localhost:8000/api';
 const APP_STATE_KEY = 'vrfilms_dubbing_state_v1';
@@ -13,6 +14,7 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     return localStorage.getItem('vrfilms_auth_state_v1') === 'true';
   });
+  const [appMode, setAppMode] = useState('pipeline'); // 'pipeline' | 'direct'
   const [currentStage, setCurrentStage] = useState(1);
   const [transcriptBlocks, setTranscriptBlocks] = useState([]);
   const [translatedBlocks, setTranslatedBlocks] = useState([]);
@@ -173,25 +175,57 @@ function App() {
         </button>
         <h1>VR FILMS AI Dubbing Tool</h1>
         <p>Automated Video Localization Pipeline</p>
+
+        {/* Mode Toggle */}
+        <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem', marginTop: '1rem' }}>
+          <button
+            id="mode-pipeline-btn"
+            onClick={() => setAppMode('pipeline')}
+            className={appMode === 'pipeline' ? 'btn' : 'btn btn-secondary'}
+            style={{
+              padding: '0.45rem 1.1rem', fontSize: '0.88rem',
+              background: appMode === 'pipeline' ? 'var(--accent)' : undefined,
+            }}
+          >
+            <GitBranch size={15} /> Manual Pipeline
+          </button>
+          <button
+            id="mode-direct-btn"
+            onClick={() => setAppMode('direct')}
+            className={appMode === 'direct' ? 'btn' : 'btn btn-secondary'}
+            style={{
+              padding: '0.45rem 1.1rem', fontSize: '0.88rem',
+              background: appMode === 'direct' ? 'linear-gradient(135deg,#7c3aed,#3b82f6)' : undefined,
+            }}
+          >
+            <Zap size={15} /> Direct ElevenLabs Dub
+          </button>
+        </div>
       </header>
 
-      <div className="stepper">
-        {[1, 2, 3].map(step => (
-          <div 
-            key={step} 
-            className={`step ${currentStage === step ? 'active' : ''} ${currentStage > step ? 'completed' : ''}`}
-          >
-            {currentStage > step ? '✓' : step}
-          </div>
-        ))}
-      </div>
+      {appMode === 'pipeline' && (
+        <div className="stepper">
+          {[1, 2, 3].map(step => (
+            <div 
+              key={step} 
+              className={`step ${currentStage === step ? 'active' : ''} ${currentStage > step ? 'completed' : ''}`}
+            >
+              {currentStage > step ? '✓' : step}
+            </div>
+          ))}
+        </div>
+      )}
 
       <main className="glass-card">
-        {currentStage === 1 && (
+        {appMode === 'direct' && (
+          <DirectDub apiBase={API_BASE} />
+        )}
+
+        {appMode === 'pipeline' && currentStage === 1 && (
           <Stage1Upload apiBase={API_BASE} onComplete={handleTranscribed} />
         )}
         
-        {currentStage === 2 && (
+        {appMode === 'pipeline' && currentStage === 2 && (
           <Stage2Translate 
             apiBase={API_BASE} 
             blocks={transcriptBlocks} 
@@ -202,7 +236,7 @@ function App() {
           />
         )}
 
-        {currentStage === 3 && (
+        {appMode === 'pipeline' && currentStage === 3 && (
           <Stage3Voices 
             apiBase={API_BASE} 
             blocks={translatedBlocks} 
@@ -216,7 +250,7 @@ function App() {
           />
         )}
 
-        {currentStage === 4 && (
+        {appMode === 'pipeline' && currentStage === 4 && (
           <AudioPlayer 
             audioUrl={finalAudioUrl} 
             videoUrl={finalVideoUrl}
