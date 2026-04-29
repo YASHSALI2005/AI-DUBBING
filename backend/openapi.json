@@ -1,0 +1,794 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "FastAPI",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/config": {
+      "get": {
+        "summary": "Get Config",
+        "operationId": "get_config_api_config_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/upload-fast": {
+      "post": {
+        "summary": "Process Upload Fast",
+        "description": "Upload + extract audio.mp3 ONLY \u2014 no Sarvam STT, no diarization.\n\nUsed by the Gemini per-segment dub flow: Gemini transcribes/diarizes the\naudio itself during synthesis, so paying Sarvam for the same work is\nwasteful and slow. This endpoint just lands the file + audio.mp3 in the\nsession dir and returns the session_id, ready for /api/synthesize with\nsynthesis_mode='single_per_segment_gemini'.",
+        "operationId": "process_upload_fast_api_upload_fast_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_process_upload_fast_api_upload_fast_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/upload": {
+      "post": {
+        "summary": "Process Upload",
+        "operationId": "process_upload_api_upload_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_process_upload_api_upload_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/translate": {
+      "post": {
+        "summary": "Translate Text",
+        "operationId": "translate_text_api_translate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TranslateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/enhance-translation": {
+      "post": {
+        "summary": "Enhance Translation",
+        "operationId": "enhance_translation_api_enhance_translation_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnhanceTranscriptRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/gemini/session-preview": {
+      "post": {
+        "summary": "Gemini Session Preview",
+        "description": "Preview Gemini speaker-wise transcript for a session without synthesis.\n\nThis is used by Stage 3 manual mode so users can first see auto-detected\nspeaker turns/timestamps, then edit transcript/timeline/gender/voice\nbefore final synthesis.",
+        "operationId": "gemini_session_preview_api_gemini_session_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GeminiSessionPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/synthesize": {
+      "post": {
+        "summary": "Synthesize Audio",
+        "operationId": "synthesize_audio_api_synthesize_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SynthesisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/dub-direct/languages": {
+      "get": {
+        "summary": "Dub Direct Languages",
+        "operationId": "dub_direct_languages_api_dub_direct_languages_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/dub-direct/start": {
+      "post": {
+        "summary": "Dub Direct Start",
+        "description": "Start an end-to-end ElevenLabs dubbing job.\nSaves the uploaded file to a new session directory, submits to ElevenLabs,\nand returns session_id + dubbing_id immediately for the client to poll.",
+        "operationId": "dub_direct_start_api_dub_direct_start_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_dub_direct_start_api_dub_direct_start_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/dub-direct/status/{dubbing_id}": {
+      "get": {
+        "summary": "Dub Direct Status",
+        "description": "Proxy the ElevenLabs dubbing status so the browser can poll it.",
+        "operationId": "dub_direct_status_api_dub_direct_status__dubbing_id__get",
+        "parameters": [
+          {
+            "name": "dubbing_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Dubbing Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/dub-direct/finalize": {
+      "post": {
+        "summary": "Dub Direct Finalize",
+        "description": "Download the ElevenLabs dubbed result and return playback/download URLs.",
+        "operationId": "dub_direct_finalize_api_dub_direct_finalize_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DirectDubFinalizeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/audio/{session_id}": {
+      "get": {
+        "summary": "Get Audio",
+        "operationId": "get_audio_api_audio__session_id__get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/video/{session_id}": {
+      "get": {
+        "summary": "Get Video",
+        "operationId": "get_video_api_video__session_id__get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Body_dub_direct_start_api_dub_direct_start_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "target_lang": {
+            "type": "string",
+            "title": "Target Lang"
+          },
+          "source_lang": {
+            "type": "string",
+            "title": "Source Lang",
+            "default": "auto"
+          },
+          "num_speakers": {
+            "type": "integer",
+            "title": "Num Speakers",
+            "default": 0
+          },
+          "disable_voice_cloning": {
+            "type": "boolean",
+            "title": "Disable Voice Cloning",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "file",
+          "target_lang"
+        ],
+        "title": "Body_dub_direct_start_api_dub_direct_start_post"
+      },
+      "Body_process_upload_api_upload_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "language_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language Code"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_process_upload_api_upload_post"
+      },
+      "Body_process_upload_fast_api_upload_fast_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_process_upload_fast_api_upload_fast_post"
+      },
+      "DirectDubFinalizeRequest": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "dubbing_id": {
+            "type": "string",
+            "title": "Dubbing Id"
+          },
+          "target_lang": {
+            "type": "string",
+            "title": "Target Lang"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "dubbing_id",
+          "target_lang"
+        ],
+        "title": "DirectDubFinalizeRequest"
+      },
+      "EnhanceTranscriptRequest": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "transcript_blocks": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Transcript Blocks"
+          },
+          "source_lang": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Lang"
+          },
+          "target_lang": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Lang"
+          },
+          "speaker_genders": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Speaker Genders",
+            "default": {}
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "transcript_blocks"
+        ],
+        "title": "EnhanceTranscriptRequest"
+      },
+      "GeminiSessionPreviewRequest": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "target_lang": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Lang"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id"
+        ],
+        "title": "GeminiSessionPreviewRequest"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "SynthesisRequest": {
+        "properties": {
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "transcript_blocks": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Transcript Blocks"
+          },
+          "voice_map": {
+            "items": {
+              "$ref": "#/components/schemas/SynthesisVoiceMap"
+            },
+            "type": "array",
+            "title": "Voice Map"
+          },
+          "speaker_genders": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Speaker Genders"
+          },
+          "target_duration_ms": {
+            "type": "number",
+            "title": "Target Duration Ms",
+            "default": 0
+          },
+          "target_lang": {
+            "type": "string",
+            "title": "Target Lang",
+            "default": "hi-IN"
+          },
+          "auto_detect_speakers": {
+            "type": "boolean",
+            "title": "Auto Detect Speakers",
+            "default": true
+          },
+          "disable_voice_cloning": {
+            "type": "boolean",
+            "title": "Disable Voice Cloning",
+            "default": false
+          },
+          "synthesis_mode": {
+            "type": "string",
+            "title": "Synthesis Mode",
+            "default": "dubbing_auto"
+          }
+        },
+        "type": "object",
+        "required": [
+          "transcript_blocks",
+          "voice_map"
+        ],
+        "title": "SynthesisRequest"
+      },
+      "SynthesisVoiceMap": {
+        "properties": {
+          "speaker_id": {
+            "type": "string",
+            "title": "Speaker Id"
+          },
+          "voice_id": {
+            "type": "string",
+            "title": "Voice Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "speaker_id",
+          "voice_id"
+        ],
+        "title": "SynthesisVoiceMap"
+      },
+      "TranslateRequest": {
+        "properties": {
+          "transcript_blocks": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Transcript Blocks"
+          },
+          "target_lang": {
+            "type": "string",
+            "title": "Target Lang"
+          },
+          "source_lang": {
+            "type": "string",
+            "title": "Source Lang",
+            "default": "en-IN"
+          },
+          "speaker_genders": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Speaker Genders"
+          }
+        },
+        "type": "object",
+        "required": [
+          "transcript_blocks",
+          "target_lang"
+        ],
+        "title": "TranslateRequest"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
