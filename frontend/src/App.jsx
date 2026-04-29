@@ -117,6 +117,20 @@ function App() {
     navigateTo(2);
   };
 
+  // Fast-upload path: file landed via /api/upload-fast (no STT). Skip Stage 2
+  // entirely and jump straight to Stage 3 in Gemini per-segment dub mode —
+  // Gemini will transcribe + diarize + translate + dub during synthesis.
+  const handleFastUploaded = (uploadedFile, sId, tgtLang) => {
+    setVideoFile(uploadedFile);
+    setSessionId(sId);
+    setTranscriptBlocks([]);
+    setTranslatedBlocks([]);
+    setSourceLang('auto');
+    setSelectedLang(tgtLang || 'hi-IN');
+    setExperimentMode('gemini_segment_dub');
+    navigateTo(3);
+  };
+
   const handleTranslated = (blocks, lang, expMode) => {
     setTranslatedBlocks(blocks);
     if (lang) setSelectedLang(lang);
@@ -173,7 +187,7 @@ function App() {
           <LogOut size={18} />
           <span style={{ marginLeft: '0.5rem' }}>Sign Out</span>
         </button>
-        <h1>VR FILMS AI Dubbing Tool</h1>
+        <h1>PARROT AI Dubbing </h1>
         <p>Automated Video Localization Pipeline</p>
 
         {/* Mode Toggle */}
@@ -198,7 +212,7 @@ function App() {
               background: appMode === 'direct' ? 'linear-gradient(135deg,#7c3aed,#3b82f6)' : undefined,
             }}
           >
-            <Zap size={15} /> Direct ElevenLabs Dub
+            <Zap size={15} /> Direct  Dub
           </button>
         </div>
       </header>
@@ -222,7 +236,11 @@ function App() {
         )}
 
         {appMode === 'pipeline' && currentStage === 1 && (
-          <Stage1Upload apiBase={API_BASE} onComplete={handleTranscribed} />
+          <Stage1Upload
+            apiBase={API_BASE}
+            onComplete={handleTranscribed}
+            onFastUploadComplete={handleFastUploaded}
+          />
         )}
         
         {appMode === 'pipeline' && currentStage === 2 && (

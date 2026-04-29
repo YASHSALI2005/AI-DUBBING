@@ -1,0 +1,21 @@
+{
+  "transcript": "Okay, guys, it could be any minute now. Yep. Almost done. You know Max was like",
+  "num_speakers": 2,
+  "speakers": [
+    {
+      "name": "Speaker1",
+      "gender": "male",
+      "recommended_voice": "Orus",
+      "style_direction": "A deep, firm male voice with a serious and slightly commanding tone."
+    },
+    {
+      "name": "Speaker2",
+      "gender": "male",
+      "recommended_voice": "Zubenelgenubi",
+      "style_direction": "A casual, mid-range male voice with a confident and slightly upbeat tone."
+    }
+  ],
+  "tagged_transcript": "Speaker1: [serious] Okay, guys, it could be any minute now.\nSpeaker2: Yep. [short pause] Almost done.\nSpeaker1: [medium pause] You know Max was [short pause] like",
+  "language": "en-US",
+  "pace": "moderate"
+}

@@ -1,0 +1,27 @@
+{
+  "transcript": "ask you is how many times have you snitched on a fellow inmate? This makes my fourth. This makes your fourth time. Four times you've testified for the prosecution against a fellow inmate. Makes you a popular man, Mr. Corliss. Sounds like people just come up to you, tell you the crimes that they've committed so you can come in here and testify again.",
+  "num_speakers": 2,
+  "speakers": [
+    {
+      "name": "Speaker1",
+      "gender": "male",
+      "character_archetype": "Seasoned interrogator / DA",
+      "voice_reasoning": "The voice is clear, articulate, and authoritative with a hint of condescension, fitting perfectly for a seasoned lawyer systematically dismantling a witness on the stand.",
+      "recommended_voice": "Sadaltager",
+      "style_direction": "A sharp, confident prosecutor cross-examining a jailhouse informant. His tone is methodical and laced with increasing sarcasm, intended to expose the witness's lack of credibility to the jury."
+    },
+    {
+      "name": "Speaker2",
+      "gender": "male",
+      "character_archetype": "Hardened criminal / reluctant witness",
+      "voice_reasoning": "The speaker's voice is low, slightly gravelly, and delivered in a clipped, reluctant manner, characteristic of a weary inmate who has been through this process before.",
+      "recommended_voice": "Algenib",
+      "style_direction": "A hardened jailhouse informant on the witness stand. He's weary and guarded, answering questions with a low, gruff, and minimal tone."
+    }
+  ],
+  "tagged_transcript": "Speaker1: [like a lawyer asking a pointed question in cross-examination] Toh batao, kitni baar apne hi inmate par snitch kiya hai?\nSpeaker2: [gruffly and reluctantly] Yeh chauthi baar hai.\nSpeaker1: [like a lawyer pressing a point in cross-examination] Chauthi baar. Chaar baar tumne prosecution ke liye testify kiya hai apne hi inmate ke against.\nSpeaker1: [like a lawyer pressing a point, with growing sarcasm] Kaafi popular ho tum, Mr. Corliss. Lagta hai log khud tumhare paas aate hain apne crimes batane... taaki tum yahan testify kar sako.",
+  "language": "en-US",
+  "pace": "moderate-slow",
+  "original_tagged_transcript": "Speaker1: [like a lawyer asking a pointed question in cross-examination] I ask you is how many times have you snitched on a fellow inmate?\nSpeaker2: [gruffly and reluctantly] This makes my fourth.\nSpeaker1: [like a lawyer pressing a point in cross-examination] This makes your fourth time. [medium pause] Four times you've testified for the prosecution [short pause] against a fellow inmate.\nSpeaker1: [like a lawyer pressing a point, with growing sarcasm] Makes you a popular man, Mr. Corliss. [medium pause] Sounds like people just come up to you, tell you the crimes that they've committed so you can come in here and testify again.",
+  "dubbed_language": "hi-IN"
+}

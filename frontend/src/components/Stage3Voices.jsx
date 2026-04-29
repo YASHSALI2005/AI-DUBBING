@@ -49,10 +49,24 @@ const AVAILABLE_VOICES = [
   { id: 'soham',    name: 'Soham    (Male)   - Steady' },
 ];
 
+const GEMINI_AVAILABLE_VOICES = [
+  { id: 'Charon', name: 'Charon (male)' },
+  { id: 'Algenib', name: 'Algenib (male)' },
+  { id: 'Sadaltager', name: 'Sadaltager (male)' },
+  { id: 'Kore', name: 'Kore (female)' },
+  { id: 'Aoede', name: 'Aoede (female)' },
+  { id: 'Zephyr', name: 'Zephyr (female)' },
+  { id: 'Sadachbia', name: 'Sadachbia (male)' },
+];
+
 export default function Stage3Voices({ apiBase, blocks, videoFile, targetLang = 'hi-IN', experimentMode = 'translated_sarvam', sessionId, finalVideoUrl, onComplete, onViewResult }) {
   const [loading, setLoading] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [videoUrl, setVideoUrl] = useState(null);
   const [playingVideo, setPlayingVideo] = useState(false);
+  const [useManualGemini, setUseManualGemini] = useState(false);
+  const [editableBlocks, setEditableBlocks] = useState(() => Array.isArray(blocks) ? blocks : []);
+  const [speakerGenders, setSpeakerGenders] = useState({});
   const videoRef = useRef(null);
   const playTimeoutRef = useRef(null);
 
@@ -64,17 +78,28 @@ export default function Stage3Voices({ apiBase, blocks, videoFile, targetLang = 
     }
   }, [videoFile]);
 
+  useEffect(() => {
+    setEditableBlocks(Array.isArray(blocks) ? blocks : []);
+  }, [blocks]);
+
+  const activeBlocks = useMemo(() => {
+    if (experimentMode === 'gemini_segment_dub' && useManualGemini) {
+      return editableBlocks;
+    }
+    return blocks;
+  }, [blocks, editableBlocks, experimentMode, useManualGemini]);
+
   // Extract unique speakers and their first appearance timestamp
   const speakersData = useMemo(() => {
     const spks = {};
-    blocks.forEach(b => {
+    activeBlocks.forEach(b => {
         const s = b.speakers && b.speakers.length > 0 ? b.speakers[0] : 'S0';
         if (!spks[s]) {
             spks[s] = { id: s, startTime: b.timestamps[0] || 0 };
         }
     });
     return Object.values(spks);
-  }, [blocks]);
+  }, [activeBlocks]);
 
   // Initial mapping (Fallback to different voices)
   const [voiceMap, setVoiceMap] = useState(() => {
@@ -84,6 +109,23 @@ export default function Stage3Voices({ apiBase, blocks, videoFile, targetLang = 
     });
     return initMap;
   });
+
+  useEffect(() => {
+    setVoiceMap(prev => {
+      const next = { ...prev };
+      speakersData.forEach((s) => {
+        if (!next[s.id]) next[s.id] = experimentMode === 'gemini_segment_dub' ? 'Charon' : 'auto';
+      });
+      return next;
+    });
+    setSpeakerGenders(prev => {
+      const next = { ...prev };
+      speakersData.forEach((s) => {
+        if (!next[s.id]) next[s.id] = 'unknown';
+      });
+      return next;
+    });
+  }, [speakersData, experimentMode]);
 
   const playContextSnippet = (startTime) => {
       if (videoRef.current) {
@@ -106,6 +148,66 @@ export default function Stage3Voices({ apiBase, blocks, videoFile, targetLang = 
     setVoiceMap(prev => ({ ...prev, [speaker]: voiceId }));
   };
 
+  const handleGenderChange = (speaker, gender) => {
+    setSpeakerGenders(prev => ({ ...prev, [speaker]: gender }));
+  };
+
+  const updateBlockField = (idx, field, value) => {
+    setEditableBlocks(prev => prev.map((b, i) => {
+      if (i !== idx) return b;
+      if (field === 'speaker') return { ...b, speakers: [value || 'S0'] };
+      if (field === 'start') return { ...b, timestamps: [Number(value) || 0, Number(b?.timestamps?.[1]) || 0] };
+      if (field === 'end') return { ...b, timestamps: [Number(b?.timestamps?.[0]) || 0, Number(value) || 0] };
+      return { ...b, transcript: value };
+    }));
+  };
+
+  const addManualBlock = () => {
+    setEditableBlocks(prev => [
+      ...prev,
+      { id: `manual-${Date.now()}`, speakers: ['S1'], transcript: '', timestamps: [0, 2] },
+    ]);
+  };
+
+  const loadGeminiPreview = async () => {
+    if (!sessionId) {
+      alert('Missing session id. Please upload again from Stage 1.');
+      return;
+    }
+    setPreviewLoading(true);
+    try {
+      const res = await axios.post(`${apiBase}/gemini/session-preview`, {
+        session_id: sessionId,
+        target_lang: targetLang,
+      });
+      const previewBlocks = Array.isArray(res.data?.blocks) ? res.data.blocks : [];
+      const previewSpeakers = Array.isArray(res.data?.speakers) ? res.data.speakers : [];
+      setEditableBlocks(previewBlocks);
+      setVoiceMap(prev => {
+        const next = { ...prev };
+        previewSpeakers.forEach((s) => {
+          if (!s?.name) return;
+          next[s.name] = s.recommended_voice || next[s.name] || 'Charon';
+        });
+        return next;
+      });
+      setSpeakerGenders(prev => {
+        const next = { ...prev };
+        previewSpeakers.forEach((s) => {
+          if (!s?.name) return;
+          next[s.name] = (s.gender || next[s.name] || 'unknown').toLowerCase();
+        });
+        return next;
+      });
+    } catch (err) {
+      console.error(err);
+      const backendDetail = err?.response?.data?.detail || err.message || 'Failed to load preview.';
+      alert(`Could not load Gemini transcript preview.\n\n${backendDetail}`);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
   const handleSynthesize = async () => {
     if (!sessionId) {
         alert("Session tracking was lost (likely due to a browser reload). Please go back and upload the video again.");
@@ -115,17 +217,29 @@ export default function Stage3Voices({ apiBase, blocks, videoFile, targetLang = 
     try {
       // Find exact duration in milliseconds if available
       const durationMs = videoRef.current ? videoRef.current.duration * 1000 : 0;
-        
-      const useTextExperiment = experimentMode !== 'elevenlabs_auto';
+
+      let synthesisMode;
+      if (experimentMode === 'elevenlabs_auto') {
+          synthesisMode = 'dubbing_auto';
+      } else if (experimentMode === 'gemini_segment_dub') {
+          // Gemini re-analyzes the audio, picks voices per speaker, and
+          // synthesizes each segment with single-speaker TTS. Manual voice_map
+          // is ignored — Gemini's recommendations are used.
+          synthesisMode = 'single_per_segment_gemini';
+      } else {
+          synthesisMode = 'text_experiment';
+      }
+
       const payload = {
           session_id: sessionId,
-          transcript_blocks: blocks,
+          transcript_blocks: activeBlocks,
           voice_map: Object.keys(voiceMap).map(k => ({ speaker_id: k, voice_id: voiceMap[k] })),
+          speaker_genders: speakerGenders,
           target_duration_ms: durationMs,
           target_lang: targetLang,
-          auto_detect_speakers: true,
+          auto_detect_speakers: !(experimentMode === 'gemini_segment_dub' && useManualGemini),
           disable_voice_cloning: false,
-          synthesis_mode: useTextExperiment ? 'text_experiment' : 'dubbing_auto'
+          synthesis_mode: synthesisMode
       };
       
       const res = await axios.post(`${apiBase}/synthesize`, payload);
@@ -149,7 +263,11 @@ export default function Stage3Voices({ apiBase, blocks, videoFile, targetLang = 
         Generate the final dub.
       </p>
       <p style={{color: 'var(--text-muted)', marginBottom: '1rem', textAlign: 'center', fontSize: '0.9rem'}}>
-        Active mode: <strong>{experimentMode.replaceAll('_', ' ')}</strong>{experimentMode === 'elevenlabs_auto' ? ' (ElevenLabs auto speaker detection)' : ' (text-driven synthesis)'}
+        Active mode: <strong>{experimentMode.replaceAll('_', ' ')}</strong>{
+          experimentMode === 'elevenlabs_auto' ? ' (ElevenLabs auto speaker detection)' :
+          experimentMode === 'gemini_segment_dub' ? ' (Gemini per-segment, supports 3+ speakers)' :
+          ' (text-driven synthesis)'
+        }
       </p>
 
       {experimentMode === 'hindi_transcribed' && (
@@ -195,43 +313,114 @@ export default function Stage3Voices({ apiBase, blocks, videoFile, targetLang = 
         </div>
       )}
 
-      <div style={{ background: 'var(--bg-card)', padding: '1.5rem', borderRadius: '12px', marginBottom: '2rem', border: '1px solid var(--border-light)' }}>
-        <h3 style={{marginBottom: '1rem', color: 'var(--text-muted)'}}>
-          {experimentMode === 'elevenlabs_auto' ? 'Reference transcript (not used for ElevenLabs auto)' : `Script for dub (${targetLang})`}
-        </h3>
-        <div style={{display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '350px', overflowY: 'auto', paddingRight: '0.5rem'}}>
-          {blocks.map((b, i) => (
-            <div key={i} style={{display: 'flex', gap: '1rem', alignItems: 'flex-start'}}>
-                <span style={{
-                    background: 'rgba(59, 130, 246, 0.2)', 
-                    color: 'var(--primary)', 
-                    padding: '0.4rem 0.6rem', 
-                    borderRadius: '6px', 
-                    fontSize: '0.8rem',
-                    fontWeight: 'bold',
-                    border: '1px solid rgba(59, 130, 246, 0.4)',
-                    minWidth: '40px',
-                    textAlign: 'center'
-                }}>
-                    {b.speakers[0] || 'S?'}
-                </span>
-                <div style={{
-                    flex: 1, 
-                    margin: 0, 
-                    lineHeight: '1.5', 
-                    background: 'rgba(0,0,0,0.3)', 
-                    border: '1px solid var(--border-light)',
-                    color: 'var(--text-light)',
-                    padding: '0.75rem',
-                    borderRadius: '8px',
-                    minHeight: '40px'
-                  }}>
-                  {b.transcript}
-                </div>
-            </div>
-          ))}
+      {experimentMode === 'gemini_segment_dub' && (
+        <div
+          style={{
+            margin: '0 auto 1.25rem auto',
+            maxWidth: '640px',
+            padding: '0.85rem 1rem',
+            borderRadius: '10px',
+            border: '1px solid rgba(139, 92, 246, 0.5)',
+            background: 'rgba(139, 92, 246, 0.12)',
+            color: '#c4b5fd',
+            fontSize: '0.9rem',
+            lineHeight: 1.45,
+            textAlign: 'left',
+          }}
+        >
+          <strong>Gemini per-segment dub</strong> re-analyzes your audio with Gemini, identifies each
+          speaker (any number — handles 3+ speakers that ElevenLabs and the legacy Gemini multi-speaker
+          mode can&apos;t), picks a voice per speaker automatically, and synthesizes each speaker turn
+          separately before stitching them back onto the original timeline. The voice picker below is
+          <strong> ignored</strong> in this mode (voices are auto-assigned). The transcript and translation
+          shown above are also ignored — Gemini transcribes and translates fresh from the audio.
         </div>
-      </div>
+      )}
+
+      {experimentMode === 'gemini_segment_dub' && (
+        <div style={{ margin: '0 auto 1rem auto', maxWidth: '760px', padding: '0.75rem 1rem', borderRadius: '10px', border: '1px solid rgba(96, 165, 250, 0.35)', background: 'rgba(59, 130, 246, 0.08)' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+            <input type="checkbox" checked={useManualGemini} onChange={(e) => setUseManualGemini(e.target.checked)} />
+            <strong>Manual Gemini controls</strong>
+          </label>
+          <p style={{ margin: '0.35rem 0 0 0', color: 'var(--text-muted)', fontSize: '0.86rem' }}>
+            Enable to manually edit transcript text, timeline (start/end), speaker IDs, gender hints, and voice-per-speaker.
+          </p>
+        </div>
+      )}
+
+      {experimentMode === 'gemini_segment_dub' && useManualGemini && (
+        <div style={{ background: 'var(--bg-card)', padding: '1rem', borderRadius: '12px', marginBottom: '1.25rem', border: '1px solid var(--border-light)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+            <h3 style={{ margin: 0, color: 'var(--text-muted)' }}>Manual Segments (editable transcript + timeline)</h3>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button className="btn btn-secondary" onClick={loadGeminiPreview} disabled={previewLoading}>
+                {previewLoading ? 'Loading transcript...' : 'Load transcript by speaker'}
+              </button>
+              <button className="btn btn-secondary" onClick={addManualBlock}>+ Add Segment</button>
+            </div>
+          </div>
+          {editableBlocks.length === 0 && (
+            <p style={{ marginTop: 0, marginBottom: '0.75rem', color: 'var(--text-muted)', fontSize: '0.86rem' }}>
+              Click <strong>Load transcript by speaker</strong> to auto-fill speaker-wise transcript + timestamps from Gemini,
+              then edit anything before synthesis.
+            </p>
+          )}
+          <div style={{ display: 'grid', gap: '0.75rem' }}>
+            {editableBlocks.map((b, i) => (
+              <div key={b.id || i} style={{ border: '1px solid var(--border-light)', borderRadius: '10px', padding: '0.75rem', background: 'rgba(0,0,0,0.2)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.6rem', marginBottom: '0.6rem' }}>
+                  <input value={b?.speakers?.[0] || ''} onChange={(e) => updateBlockField(i, 'speaker', e.target.value)} placeholder="Speaker (e.g. S1)" />
+                  <input type="number" step="0.01" value={b?.timestamps?.[0] ?? 0} onChange={(e) => updateBlockField(i, 'start', e.target.value)} placeholder="Start sec" />
+                  <input type="number" step="0.01" value={b?.timestamps?.[1] ?? 0} onChange={(e) => updateBlockField(i, 'end', e.target.value)} placeholder="End sec" />
+                </div>
+                <textarea value={b?.transcript || ''} onChange={(e) => updateBlockField(i, 'transcript', e.target.value)} rows={2} style={{ width: '100%' }} placeholder="Editable transcript line..." />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Hide the script box for fast-upload Gemini dubs (no transcript exists yet). */}
+      {!(experimentMode === 'gemini_segment_dub' && activeBlocks.length === 0) && (
+        <div style={{ background: 'var(--bg-card)', padding: '1.5rem', borderRadius: '12px', marginBottom: '2rem', border: '1px solid var(--border-light)' }}>
+          <h3 style={{marginBottom: '1rem', color: 'var(--text-muted)'}}>
+            {experimentMode === 'elevenlabs_auto' ? 'Reference transcript (not used for ElevenLabs auto)' : `Script for dub (${targetLang})`}
+          </h3>
+          <div style={{display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '350px', overflowY: 'auto', paddingRight: '0.5rem'}}>
+            {activeBlocks.map((b, i) => (
+              <div key={i} style={{display: 'flex', gap: '1rem', alignItems: 'flex-start'}}>
+                  <span style={{
+                      background: 'rgba(59, 130, 246, 0.2)', 
+                      color: 'var(--primary)', 
+                      padding: '0.4rem 0.6rem', 
+                      borderRadius: '6px', 
+                      fontSize: '0.8rem',
+                      fontWeight: 'bold',
+                      border: '1px solid rgba(59, 130, 246, 0.4)',
+                      minWidth: '40px',
+                      textAlign: 'center'
+                  }}>
+                      {b.speakers[0] || 'S?'}
+                  </span>
+                  <div style={{
+                      flex: 1, 
+                      margin: 0, 
+                      lineHeight: '1.5', 
+                      background: 'rgba(0,0,0,0.3)', 
+                      border: '1px solid var(--border-light)',
+                      color: 'var(--text-light)',
+                      padding: '0.75rem',
+                      borderRadius: '8px',
+                      minHeight: '40px'
+                    }}>
+                    {b.transcript}
+                  </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem', marginBottom: '2rem'}}>
         {speakersData.map(spk => (
@@ -252,33 +441,71 @@ export default function Stage3Voices({ apiBase, blocks, videoFile, targetLang = 
              </div>
              
              <div className="form-group mb-0">
-              <label>Assign Voice Model (Auto or Manual)</label>
+              <label>
+                Assign Voice Model (Auto or Manual)
+                {experimentMode === 'gemini_segment_dub' && !useManualGemini && (
+                  <span style={{color: 'var(--text-muted)', fontWeight: 'normal'}}> — ignored in auto Gemini mode</span>
+                )}
+              </label>
                <select 
                  value={voiceMap[spk.id] || ''} 
                  onChange={(e) => handleVoiceChange(spk.id, e.target.value)}
-                 style={{background: 'rgba(15, 23, 42, 0.8)'}}
+                 disabled={experimentMode === 'gemini_segment_dub' && !useManualGemini}
+                 style={{
+                   background: 'rgba(15, 23, 42, 0.8)',
+                   opacity: experimentMode === 'gemini_segment_dub' && !useManualGemini ? 0.45 : 1,
+                 }}
                >
-                 {AVAILABLE_VOICES.map(v => (
+                 {(experimentMode === 'gemini_segment_dub' ? GEMINI_AVAILABLE_VOICES : AVAILABLE_VOICES).map(v => (
                     <option key={v.id} value={v.id}>{v.name}</option>
                  ))}
                </select>
+               {experimentMode === 'gemini_segment_dub' && (
+                 <div style={{marginTop: '0.5rem'}}>
+                   <label>Gender hint</label>
+                   <select value={speakerGenders[spk.id] || 'unknown'} onChange={(e) => handleGenderChange(spk.id, e.target.value)}>
+                     <option value="unknown">Unknown</option>
+                     <option value="male">Male</option>
+                     <option value="female">Female</option>
+                   </select>
+                 </div>
+               )}
              </div>
           </div>
         ))}
       </div>
 
-      {speakersData.length === 0 && (
+      {speakersData.length === 0 && experimentMode !== 'gemini_segment_dub' && (
          <div style={{textAlign: 'center', marginBottom: '2rem', padding: '2rem', border: '1px solid var(--border-light)', borderRadius: '12px'}}>
              No speakers detected. Creating single narrator track.
+         </div>
+      )}
+
+      {speakersData.length === 0 && experimentMode === 'gemini_segment_dub' && (
+         <div style={{textAlign: 'center', marginBottom: '2rem', padding: '2rem', border: '1px dashed rgba(139, 92, 246, 0.45)', borderRadius: '12px', background: 'rgba(139, 92, 246, 0.05)', color: 'var(--text-muted)'}}>
+             <div style={{fontSize: '0.95rem', marginBottom: '0.35rem', color: '#c4b5fd'}}>
+               <strong>Speakers will be detected by Gemini at synth time.</strong>
+             </div>
+             Hit <em>Generate Gemini Per-Segment Dub</em> below — Gemini will analyze the audio,
+             diarize all speakers (any number), pick voices, translate per segment, and stitch the dub
+             onto the original timeline. You will see the per-speaker breakdown in the result screen.
          </div>
       )}
 
       <div style={{textAlign: 'center', display: 'flex', justifyContent: 'center', gap: '1rem'}}>
         <button className="btn" onClick={handleSynthesize} disabled={loading} style={{background: 'linear-gradient(to right, #8b5cf6, #3b82f6)', minWidth: '200px'}}>
           {loading ? (
-             <><Loader2 className="loader" size={20} /> Dubbing with ElevenLabs...</>
+             <><Loader2 className="loader" size={20} /> {
+               experimentMode === 'elevenlabs_auto' ? 'Dubbing with ElevenLabs...' :
+               experimentMode === 'gemini_segment_dub' ? 'Dubbing with Gemini per-segment...' :
+               'Synthesizing...'
+             }</>
           ) : (
-             <><Wand2 size={20} /> Generate ElevenLabs Dub</>
+             <><Wand2 size={20} /> {
+               experimentMode === 'elevenlabs_auto' ? 'Generate ElevenLabs Dub' :
+               experimentMode === 'gemini_segment_dub' ? 'Generate Gemini Per-Segment Dub' :
+               'Generate Dub'
+             }</>
           )}
         </button>
 

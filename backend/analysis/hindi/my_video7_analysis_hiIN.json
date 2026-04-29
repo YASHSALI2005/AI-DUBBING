@@ -1,0 +1,43 @@
+{
+  "genre": "motivational_speech",
+  "scene_description": "A male speaker is addressing an audience, beginning a motivational story about a little boy and a balloon seller.",
+  "register": "semi-formal",
+  "transcript": "Let me kick this evening off with a favorite story of mine. There was a little boy about six years old who came to a balloon seller who was selling balloons on the street.",
+  "num_speakers": 1,
+  "speakers": [
+    {
+      "name": "Speaker1",
+      "gender": "male",
+      "character_archetype": "Motivational Speaker / Storyteller",
+      "voice_reasoning": "The speaker has a clear, articulate, and engaging voice, fitting for a confident public speaker telling a story to an audience. His mid-range tone is perfect for this style.",
+      "recommended_voice": "Iapetus",
+      "style_direction": "A confident and engaging public speaker, telling a story to an audience. His delivery is measured and warm, designed to draw the listener in with a narrative style."
+    }
+  ],
+  "segments": [
+    {
+      "speaker": "Speaker1",
+      "start": 0.358,
+      "end": 4.608,
+      "text": "Let me kick this evening off with a favorite story of mine.",
+      "tagged_text": "[confidently, like a speaker welcoming an audience] Apni favorite story se shuru karte hain.",
+      "original_tagged_text": "[confidently, like a speaker welcoming an audience] Let me kick this evening off with a favorite story of mine."
+    },
+    {
+      "speaker": "Speaker1",
+      "start": 6.138,
+      "end": 15.588,
+      "text": "There was a little boy about six years old who came to a balloon seller who was selling balloons on the street.",
+      "tagged_text": "[like a speaker setting the scene for a story] Ek chhe saal ka bachcha, street pe balloon bechne wale ke paas gaya.",
+      "original_tagged_text": "[like a speaker setting the scene for a story] There was a little boy about six years old who came to a balloon seller who was selling balloons on the street."
+    }
+  ],
+  "tagged_transcript": "[confidently, like a speaker welcoming an audience] Let me kick this evening off with a favorite story of mine. [like a speaker setting the scene for a story] There was a little boy about six years old who came to a balloon seller who was selling balloons on the street.",
+  "language": "en-US",
+  "pace": "moderate",
+  "dubbed_language": "hi-IN",
+  "speaker_plan": {
+    "Speaker1": "[0.36-4.61] [confidently, like a speaker welcoming an audience] Apni favorite story se shuru karte hain.\n--- VROTT ---\n[6.14-15.59] [like a speaker setting the scene for a story] Ek chhe saal ka bachcha, street pe balloon bechne wale ke paas gaya."
+  },
+  "multi_speaker_mode_used": "single-per-segment"
+}

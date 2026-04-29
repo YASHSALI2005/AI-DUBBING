@@ -32,7 +32,7 @@ export default function Stage2Translate({ apiBase, blocks, sourceLang, sessionId
   const [translatedBlocks, setTranslatedBlocks] = useState([]);
   const [hasTranslated, setHasTranslated] = useState(false);
   const [supportedTargetLanguages, setSupportedTargetLanguages] = useState(TARGET_LANGUAGES);
-  // Default: drive dub from Stage 2 lines via Sarvam. "elevenlabs_auto" re-dubs from the file and ignores this text.
+  // Default: drive dub from Stage 2 lines via Sarvam. "PARROT AI_auto" re-dubs from the file and ignores this text.
   const [experimentMode, setExperimentMode] = useState('translated_sarvam');
   const [timingCfg, setTimingCfg] = useState(null);
   const [lastRunSummary, setLastRunSummary] = useState(null);
@@ -498,6 +498,7 @@ export default function Stage2Translate({ apiBase, blocks, sourceLang, sessionId
               <select value={experimentMode} onChange={(e) => setExperimentMode(e.target.value)}>
                 <option value="translated_sarvam">Sarvam: speak the translation you reviewed above (recommended)</option>
                 <option value="elevenlabs_auto">ElevenLabs: auto-dub from original video file (ignores translation text)</option>
+                <option value="gemini_segment_dub">Gemini: per-segment single-speaker TTS (supports 3+ speakers, ignores translation text)</option>
                 <option value="hindi_transcribed">Sarvam: speak Stage 1 raw STT only (not your Stage 2 translation)</option>
                 <option value="hindi_romanized">Sarvam: same as translation above (edit Roman Hindi in the list if needed)</option>
                 <option value="english_transcribed">Sarvam: lines above (e.g. after translate-to-English)</option>

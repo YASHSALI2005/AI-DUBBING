@@ -1,0 +1,142 @@
+{
+  "genre": "emotional_drama",
+  "scene_description": "A man argues with customer service over a missing prize, followed by a woman furiously confronting her partner about a massive financial loss he caused.",
+  "register": "tense",
+  "transcript": "Pronto? Signor Manfredi, mi perdoni, ma non posso perdere tempo al telefono con lei. Allora, io l'anno scorso con la vostra azienda ho vinto un concorso di valigie e ancora mi devono arrivare. Ah, no, non mi dica bugie. Il set di valigie risulta consegnato. Ecco, allora lo ammette che era un set. A me di queste sette me ne sono arrivate solo tre, ma mancano quattro valigie! 2.245.000 euro di perdita! E perché deve giocare a fare il costruttore? Con i soldi miei, con i capitali di mio padre! Amore, scusami, ma tu stai ingenuamente sottovalutando il rischio che un imprenditore come me non può non considerare. Un imprenditore come te? Ma tu sei uno stronzo! E ringrazia Dio che abbiamo un figlio insieme, sennò ti rimandavo in mezzo alla strada con le pezze al culo dove ti ho trovato. Ma non dire queste cattiverie, lo sai, perché poi ti senti in colpa e te ne penti. L'unica cosa di cui mi sono pentita è di avere sposato un inetto come te.",
+  "num_speakers": 4,
+  "speakers": [
+    {
+      "name": "Speaker1",
+      "gender": "male",
+      "character_archetype": "Irate / frustrated customer",
+      "voice_reasoning": "This speaker has a clear, mid-range voice strained with annoyance as he explains his problem. Sadachbia's lively and animated quality can effectively capture this agitated energy.",
+      "recommended_voice": "Sadachbia",
+      "style_direction": "An exasperated customer on the phone trying to resolve an issue. He's annoyed and becoming increasingly frustrated with the lack of help."
+    },
+    {
+      "name": "Speaker2",
+      "gender": "female",
+      "character_archetype": "Dismissive professional",
+      "voice_reasoning": "This speaker's tone is professional but curt and dismissive. Kore's firm and confident quality is perfect for portraying a no-nonsense customer service agent who is not interested in the customer's complaint.",
+      "recommended_voice": "Kore",
+      "style_direction": "A customer service representative who is trying to get off the phone quickly. Her tone is professionally cold and she quickly becomes accusatory."
+    },
+    {
+      "name": "Speaker3",
+      "gender": "female",
+      "character_archetype": "Enraged / scorned partner",
+      "voice_reasoning": "This speaker is shouting with raw fury and contempt. Pulcherrima's forward, bold, and attention-grabbing delivery is ideal for capturing this high-intensity, emotional outburst.",
+      "recommended_voice": "Pulcherrima",
+      "style_direction": "A woman who has just discovered a massive financial betrayal by her partner. She is furious, shouting, and holding nothing back in her contempt and anger."
+    },
+    {
+      "name": "Speaker4",
+      "gender": "male",
+      "character_archetype": "Condescending / defensive partner",
+      "voice_reasoning": "This speaker maintains a calm, measured, and patronizing tone in the face of extreme anger. Schedar's even-toned and neutral voice fits this character's attempt to sound like the reasonable one in the argument.",
+      "recommended_voice": "Schedar",
+      "style_direction": "A man defending a catastrophic business decision to his furious wife. He adopts a calm, almost patronizing tone, attempting to frame his failure as a calculated, intellectual risk."
+    }
+  ],
+  "segments": [
+    {
+      "speaker": "Speaker1",
+      "start": 0.0,
+      "end": 0.72,
+      "text": "Pronto?",
+      "tagged_text": "[casually] Haan?",
+      "original_tagged_text": "[casually] Pronto?"
+    },
+    {
+      "speaker": "Speaker2",
+      "start": 1.15,
+      "end": 4.67,
+      "text": "Signor Manfredi, mi perdoni, ma non posso perdere tempo al telefono con lei.",
+      "tagged_text": "[curtly] Manfredi, phone pe time waste nahi kar sakta.",
+      "original_tagged_text": "[curtly] Signor Manfredi, mi perdoni, ma non posso perdere tempo al telefono con lei."
+    },
+    {
+      "speaker": "Speaker1",
+      "start": 5.17,
+      "end": 10.35,
+      "text": "Allora, io l'anno scorso con la vostra azienda ho vinto un concorso di valigie e ancora mi devono arrivare.",
+      "tagged_text": "[annoyed] [like a customer stating a clear problem] Pichle saal aapke contest mein suitcase jeeta tha, abhi tak nahi mila.",
+      "original_tagged_text": "[annoyed] [like a customer stating a clear problem] Allora, io l'anno scorso con la vostra azienda ho vinto un concorso di valigie e ancora mi devono arrivare."
+    },
+    {
+      "speaker": "Speaker2",
+      "start": 10.72,
+      "end": 14.23,
+      "text": "Ah, no, non mi dica bugie. Il set di valigie risulta consegnato.",
+      "tagged_text": "[scoffs] [dismissively] Nahi, jhoot mat bolo, delivered dikha raha hai.",
+      "original_tagged_text": "[scoffs] [dismissively] Ah, no, non mi dica bugie. Il set di valigie risulta consegnato."
+    },
+    {
+      "speaker": "Speaker1",
+      "start": 14.47,
+      "end": 19.95,
+      "text": "Ecco, allora lo ammette che era un set. A me di queste sette me ne sono arrivate solo tre, ma mancano quattro valigie!",
+      "tagged_text": "[indignantly] Achha, toh yeh ek set tha! [frustrated] Saat mein se teen mile hain, chaar bags missing hain!",
+      "original_tagged_text": "[indignantly] Ecco, allora lo ammette che era un set. [frustrated] A me di queste sette me ne sono arrivate solo tre, ma mancano quattro valigie!"
+    },
+    {
+      "speaker": "Speaker3",
+      "start": 20.48,
+      "end": 28.98,
+      "text": "2.245.000 euro di perdita! E perché deve giocare a fare il costruttore? Con i soldi miei, con i capitali di mio padre!",
+      "tagged_text": "[shouting] [angrily] Sava do million euro ka loss! [accusingly] Builder banne ka shauk hai? [shouting] Mere baap ke paison se?!",
+      "original_tagged_text": "[shouting] [angrily] 2.245.000 euro di perdita! [accusingly] E perché deve giocare a fare il costruttore? [shouting] Con i soldi miei, con i capitali di mio padre!"
+    },
+    {
+      "speaker": "Speaker4",
+      "start": 29.35,
+      "end": 34.69,
+      "text": "Amore, scusami, ma tu stai ingenuamente sottovalutando il rischio che un imprenditore come me non può non considerare.",
+      "tagged_text": "[patronizingly] Jaan, tum risk underestimate kar rahi ho. Main nahi kar sakta.",
+      "original_tagged_text": "[patronizingly] Amore, scusami, ma tu stai ingenuamente sottovalutando il rischio che un imprenditore come me non può non considerare."
+    },
+    {
+      "speaker": "Speaker3",
+      "start": 35.05,
+      "end": 36.31,
+      "text": "Un imprenditore come te?",
+      "tagged_text": "[disbelievingly] [with contempt] Entrepreneur? Tu?",
+      "original_tagged_text": "[disbelievingly] [with contempt] Un imprenditore come te?"
+    },
+    {
+      "speaker": "Speaker3",
+      "start": 37.33,
+      "end": 43.19,
+      "text": "Ma tu sei uno stronzo! E ringrazia Dio che abbiamo un figlio insieme, sennò ti rimandavo in mezzo alla strada con le pezze al culo dove ti ho trovato.",
+      "tagged_text": "[scoffs] [with utter contempt] Saale kamine! [seething] Shukar kar, hamaare beech ek bachcha hai. Varna sadak pe phenk deti, jahan se uthaya tha.",
+      "original_tagged_text": "[scoffs] [with utter contempt] Ma tu sei uno stronzo! [seething] E ringrazia Dio che abbiamo un figlio insieme, sennò ti rimandavo in mezzo alla strada con le pezze al culo dove ti ho trovato."
+    },
+    {
+      "speaker": "Speaker4",
+      "start": 43.6,
+      "end": 46.6,
+      "text": "Ma non dire queste cattiverie, lo sai, perché poi ti senti in colpa e te ne penti.",
+      "tagged_text": "[wearily] [like he's heard this before] Ye sab mat bol, baad mein pachtaoge.",
+      "original_tagged_text": "[wearily] [like he's heard this before] Ma non dire queste cattiverie, lo sai, perché poi ti senti in colpa e te ne penti."
+    },
+    {
+      "speaker": "Speaker3",
+      "start": 47.16,
+      "end": 50.29,
+      "text": "L'unica cosa di cui mi sono pentita è di avere sposato un inetto come te.",
+      "tagged_text": "[bitterly] [coldly] Ek hi regret hai, tum jaise loser se shaadi karna.",
+      "original_tagged_text": "[bitterly] [coldly] L'unica cosa di cui mi sono pentita è di avere sposato un inetto come te."
+    }
+  ],
+  "tagged_transcript": "Speaker1: [casually] Pronto?\nSpeaker2: [curtly] Signor Manfredi, mi perdoni, ma non posso perdere tempo al telefono con lei.\nSpeaker1: [annoyed] [like a customer stating a clear problem] Allora, io l'anno scorso con la vostra azienda ho vinto un concorso di valigie e ancora mi devono arrivare.\nSpeaker2: [scoffs] [dismissively] Ah, no, non mi dica bugie. Il set di valigie risulta consegnato.\nSpeaker1: [indignantly] Ecco, allora lo ammette che era un set. [frustrated] A me di queste sette me ne sono arrivate solo tre, ma mancano quattro valigie!\nSpeaker3: [shouting] [angrily] 2.245.000 euro di perdita! [accusingly] E perché deve giocare a fare il costruttore? [shouting] Con i soldi miei, con i capitali di mio padre!\nSpeaker4: [patronizingly] Amore, scusami, ma tu stai ingenuamente sottovalutando il rischio che un imprenditore come me non può non considerare.\nSpeaker3: [disbelievingly] [with contempt] Un imprenditore come te?\nSpeaker3: [scoffs] [with utter contempt] Ma tu sei uno stronzo! [seething] E ringrazia Dio che abbiamo un figlio insieme, sennò ti rimandavo in mezzo alla strada con le pezze al culo dove ti ho trovato.\nSpeaker4: [wearily] [like he's heard this before] Ma non dire queste cattiverie, lo sai, perché poi ti senti in colpa e te ne penti.\nSpeaker3: [bitterly] [coldly] L'unica cosa di cui mi sono pentita è di avere sposato un inetto come te.",
+  "language": "it",
+  "pace": "moderate-fast",
+  "dubbed_language": "hi-IN",
+  "speaker_plan": {
+    "Speaker1": "[0.00-0.72] [casually] Haan?\n--- VROTT ---\n[5.17-10.35] [annoyed] [like a customer stating a clear problem] Pichle saal aapke contest mein suitcase jeeta tha, abhi tak nahi mila.\n--- VROTT ---\n[14.47-19.95] [indignantly] Achha, toh yeh ek set tha! [frustrated] Saat mein se teen mile hain, chaar bags missing hain!",
+    "Speaker2": "[1.15-4.67] [curtly] Manfredi, phone pe time waste nahi kar sakta.\n--- VROTT ---\n[10.72-14.23] [scoffs] [dismissively] Nahi, jhoot mat bolo, delivered dikha raha hai.",
+    "Speaker3": "[20.48-28.98] [shouting] [angrily] Sava do million euro ka loss! [accusingly] Builder banne ka shauk hai? [shouting] Mere baap ke paison se?!\n--- VROTT ---\n[35.05-36.31] [disbelievingly] [with contempt] Entrepreneur? Tu?\n--- VROTT ---\n[37.33-43.19] [scoffs] [with utter contempt] Saale kamine! [seething] Shukar kar, hamaare beech ek bachcha hai. Varna sadak pe phenk deti, jahan se uthaya tha.\n--- VROTT ---\n[47.16-50.29] [bitterly] [coldly] Ek hi regret hai, tum jaise loser se shaadi karna.",
+    "Speaker4": "[29.35-34.69] [patronizingly] Jaan, tum risk underestimate kar rahi ho. Main nahi kar sakta.\n--- VROTT ---\n[43.60-46.60] [wearily] [like he's heard this before] Ye sab mat bol, baad mein pachtaoge."
+  },
+  "multi_speaker_mode_used": "single-per-segment"
+}

@@ -1,0 +1,27 @@
+{
+  "transcript": "Pronto? Signor Manfredi, mi perdoni, ma non posso perdere tempo al telefono con lei. Allora, io l'anno scorso con la vostra azienda ho vinto un concorso di valigie e ancora mi devono arrivare. Ah no, non mi dica bugie, il set di valigie risulta consegnato. Ecco, allora lo ammette che era un set. A me di queste sette me ne sono arrivate solo tre. Ma mancano quattro valiggia!",
+  "num_speakers": 2,
+  "speakers": [
+    {
+      "name": "Speaker1",
+      "gender": "male",
+      "character_archetype": "Irate / frustrated customer",
+      "voice_reasoning": "The voice is animated and becomes increasingly loud and frustrated, which fits the lively and emotional delivery of an angry customer. Sadachbia captures this dynamic energy well.",
+      "recommended_voice": "Sadachbia",
+      "style_direction": "An exasperated Italian man on the phone with customer service. He starts by trying to explain his problem but quickly loses his patience, his voice rising in volume and frustration."
+    },
+    {
+      "name": "Speaker2",
+      "gender": "female",
+      "character_archetype": "Dismissive call center agent",
+      "voice_reasoning": "The speaker's tone is firm, professional, and slightly condescending, fitting a confident but unhelpful agent. Kore's firm and confident delivery is a good match for this archetype.",
+      "recommended_voice": "Kore",
+      "style_direction": "A professional but unhelpful customer service representative. She speaks clearly and formally, but with an underlying tone of impatience and dismissal, as if she's reading from a script and wants to end the call."
+    }
+  ],
+  "tagged_transcript": "Speaker1: Hello?\nSpeaker2: [like a dismissive call center agent, speaking quickly] Mr. Manfredi, sorry, par main aapke saath phone pe time waste nahi kar sakti.\nSpeaker1: [getting annoyed] Suniye, pichhle saal maine aapki company ka contest jeeta tha, luggage set abhi tak nahi aaya.\nSpeaker2: [firmly and condescendingly] Nahi, jhoot mat boliye, luggage set delivered show ho raha hai.\nSpeaker1: [sarcastically triumphant] Toh aap maan gaye ki woh ek set tha. [growing more frustrated] Us saat mein se mujhe sirf teen mile hain. [shouting with exasperation] Chaar suitcase missing hain!",
+  "language": "it-IT",
+  "pace": "moderate-fast",
+  "original_tagged_transcript": "Speaker1: Pronto?\nSpeaker2: [like a dismissive call center agent, speaking quickly] Signor Manfredi, mi perdoni, ma non posso perdere tempo al telefono con lei.\nSpeaker1: [getting annoyed] Allora, io l'anno scorso con la vostra azienda ho vinto un concorso di valigie e ancora mi devono arrivare.\nSpeaker2: [firmly and condescendingly] Ah no, non mi dica bugie, il set di valigie risulta consegnato.\nSpeaker1: [sarcastically triumphant] Ecco, allora lo ammette che era un set. [growing more frustrated] A me di queste sette me ne sono arrivate solo tre. [shouting with exasperation] Ma mancano quattro valiggia!",
+  "dubbed_language": "hi-IN"
+}

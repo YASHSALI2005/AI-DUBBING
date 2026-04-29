@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import uuid
 import time
@@ -24,6 +25,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from sarvamai import SarvamAI
 from pydub import AudioSegment
 from dotenv import load_dotenv
+
+# The N-speaker single-TTS pipeline lives in scratch/tts_experiment.py — we
+# import it as a module so the API can reuse the exact same primitives that
+# the CLI script uses (no logic duplication).
+_SCRATCH_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scratch")
+if _SCRATCH_DIR not in sys.path:
+    sys.path.insert(0, _SCRATCH_DIR)
+import tts_experiment as gemini_seg  # type: ignore[import-not-found]
 
 # Load env variables
 load_dotenv()
@@ -68,7 +77,7 @@ ELEVEN_SUPPORTED_TARGET_LANGS = os.getenv(
     "hi-IN,bn-IN,ta-IN,te-IN,kn-IN,ml-IN,gu-IN,pa-IN,od-IN,mr-IN,en-IN",
 )
 SARVAM_FALLBACK_SPEAKER = os.getenv("SARVAM_FALLBACK_SPEAKER", "priya")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
 GEMINI_MAX_WORKERS = int(os.getenv("GEMINI_MAX_WORKERS", "1"))
 GEMINI_RETRY_ATTEMPTS = int(os.getenv("GEMINI_RETRY_ATTEMPTS", "5"))
 GEMINI_RETRY_BASE_SECONDS = float(os.getenv("GEMINI_RETRY_BASE_SECONDS", "2.0"))
@@ -93,6 +102,7 @@ class SynthesisRequest(BaseModel):
     session_id: Optional[str] = None
     transcript_blocks: List[Dict[str, Any]]
     voice_map: List[SynthesisVoiceMap]
+    speaker_genders: Dict[str, str] = Field(default_factory=dict)
     target_duration_ms: float = 0
     target_lang: str = 'hi-IN'
     auto_detect_speakers: bool = True
@@ -106,6 +116,11 @@ class EnhanceTranscriptRequest(BaseModel):
     source_lang: Optional[str] = None
     target_lang: Optional[str] = None
     speaker_genders: Dict[str, str] = {}
+
+
+class GeminiSessionPreviewRequest(BaseModel):
+    session_id: str
+    target_lang: Optional[str] = None
 
 # -----------------
 # Helper Functions
@@ -636,6 +651,206 @@ def call_gemini_with_retry(
         raise last_exc
     return text
 
+
+# ----------------------------------------------------------------
+# N-speaker single-TTS pipeline (powered by scratch/tts_experiment)
+# ----------------------------------------------------------------
+
+def _synthesize_per_segment_gemini_sync(
+    session_dir: str,
+    session_id: str,
+    target_lang: str,
+    target_duration_ms: float,
+    analysis_model: str,
+    manual_blocks: Optional[List[Dict[str, Any]]] = None,
+    manual_voice_map: Optional[Dict[str, str]] = None,
+    manual_speaker_genders: Optional[Dict[str, str]] = None,
+    manual_mode: bool = False,
+) -> Dict[str, Any]:
+    """Run the full N-speaker single-TTS pipeline for one session.
+
+    Steps:
+      1. Gemini analysis on the session's audio.mp3 — emits N speakers +
+         per-segment timestamps + tagged_text.
+      2. Per-segment translation if target_lang != source_lang.
+      3. Per-segment single-speaker TTS, each clip speed-matched to its
+         own (end - start) window.
+      4. Overlay every clip onto a silent timeline at its original
+         start time -> final.wav.
+      5. Mux final.wav onto input.mp4 if present -> final.mp4.
+
+    Runs synchronously (long-running). Call via asyncio.to_thread.
+    """
+    if not GEMINI_API_KEY:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured.")
+
+    from pathlib import Path
+    from google import genai as _genai
+
+    audio_path = os.path.join(session_dir, "audio.mp3")
+    if not os.path.exists(audio_path):
+        raise HTTPException(
+            status_code=404,
+            detail="Session audio.mp3 not found. Upload via /api/upload first.",
+        )
+
+    client = _genai.Client(api_key=GEMINI_API_KEY)
+
+    def _build_manual_analysis_from_blocks(
+        blocks: List[Dict[str, Any]],
+        voice_map: Dict[str, str],
+        speaker_genders: Dict[str, str],
+    ) -> Dict[str, Any]:
+        segments: List[Dict[str, Any]] = []
+        speakers: Dict[str, Dict[str, Any]] = {}
+        for idx, block in enumerate(blocks):
+            text = (block.get("transcript") or "").strip()
+            if not text:
+                continue
+            raw_speakers = block.get("speakers") or []
+            spk = str(raw_speakers[0]) if raw_speakers else f"S{idx+1}"
+            ts = block.get("timestamps") or []
+            start_s = float(ts[0]) if isinstance(ts, list) and len(ts) > 0 else float(idx * 2)
+            end_s = float(ts[1]) if isinstance(ts, list) and len(ts) > 1 else (start_s + 2.0)
+            if end_s <= start_s:
+                end_s = start_s + 0.5
+            voice = (voice_map.get(spk) or "").strip()
+            gender = (speaker_genders.get(spk) or "unknown").lower()
+            if spk not in speakers:
+                speakers[spk] = {
+                    "name": spk,
+                    "gender": gender if gender in ("male", "female") else "unknown",
+                    "character_archetype": "Manual speaker",
+                    "voice_reasoning": "Manual speaker settings from frontend",
+                    "recommended_voice": voice,
+                    "style_direction": "Use manually edited transcript and timeline.",
+                }
+            elif voice and not speakers[spk].get("recommended_voice"):
+                speakers[spk]["recommended_voice"] = voice
+            segments.append({
+                "speaker": spk,
+                "start": start_s,
+                "end": end_s,
+                "text": text,
+                "tagged_text": text,
+            })
+        segments.sort(key=lambda s: float(s.get("start", 0.0)))
+        for spk, cfg in speakers.items():
+            if not cfg.get("recommended_voice"):
+                cfg["recommended_voice"] = "Charon" if cfg.get("gender") == "male" else "Aoede"
+        full_text = " ".join(seg.get("text", "") for seg in segments).strip()
+        tagged = "\n".join(f"{seg['speaker']}: {seg['tagged_text']}" for seg in segments)
+        return {
+            "transcript": full_text,
+            "num_speakers": len(speakers) or 1,
+            "speakers": list(speakers.values()),
+            "segments": segments,
+            "tagged_transcript": tagged,
+            "language": "unknown",
+            "pace": "moderate",
+        }
+
+    # Step 1: analyse audio (auto) OR use manual transcript/timeline.
+    if manual_mode and manual_blocks:
+        analysis = _build_manual_analysis_from_blocks(
+            manual_blocks,
+            manual_voice_map or {},
+            manual_speaker_genders or {},
+        )
+    else:
+        analysis = gemini_seg.analyse_audio(client, Path(audio_path), analysis_model)
+    num_speakers = analysis.get("num_speakers", 1)
+    segments = analysis.get("segments", [])
+    if not segments:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"Gemini analysis returned no 'segments' field "
+                f"(num_speakers={num_speakers}). The analysis model may not "
+                f"have followed the new schema. Try a different --model."
+            ),
+        )
+
+    # Step 2: translate per-segment if needed.
+    is_dubbing = bool(
+        target_lang and target_lang != analysis.get("language", "en-US")
+    )
+    if is_dubbing:
+        gemini_seg.translate_segments_in_place(client, analysis, target_lang, analysis_model)
+
+    # Save the analysis (with VROTT speaker plan + dubbed text) for inspection.
+    analysis_to_save = dict(analysis)
+    analysis_to_save["speaker_plan"] = gemini_seg.build_speaker_plan(analysis)
+    analysis_to_save["multi_speaker_mode_used"] = "single-per-segment"
+    analysis_to_save["manual_mode"] = bool(manual_mode and manual_blocks)
+    if is_dubbing:
+        analysis_to_save["dubbed_language"] = target_lang
+    with open(os.path.join(session_dir, "analysis.json"), "w", encoding="utf-8") as f:
+        json.dump(analysis_to_save, f, indent=2, ensure_ascii=False)
+
+    # Step 3+4: per-segment TTS + timeline overlay.
+    audio_out = Path(session_dir) / "final.wav"
+
+    # Determine timeline length: prefer explicit target, else source duration.
+    if target_duration_ms and target_duration_ms > 0:
+        target_dur_s: Optional[float] = float(target_duration_ms) / 1000.0
+    else:
+        input_video = os.path.join(session_dir, "input.mp4")
+        source_media = input_video if os.path.exists(input_video) else audio_path
+        target_dur_s = get_audio_duration_seconds(source_media) or None
+
+    gemini_seg.synthesize_segments_to_timeline(
+        client=client,
+        analysis=analysis,
+        audio_out=audio_out,
+        output_dir=Path(session_dir),
+        stem="render",
+        lang_tag="",
+        target_dur=target_dur_s,
+        is_dubbing=is_dubbing,
+        apply_tighten=is_dubbing,
+        voice_override=None,
+        no_speed_match=False,
+        max_speed_match=1.2,
+        no_exact_duration=False,
+    )
+
+    # Step 5: mux back onto the original video if available.
+    final_video_url = None
+    input_video = os.path.join(session_dir, "input.mp4")
+    if os.path.exists(input_video):
+        final_mp4 = os.path.join(session_dir, "final.mp4")
+        cmd = [
+            "ffmpeg", "-y", "-i", input_video, "-i", str(audio_out),
+            "-c:v", "copy", "-map", "0:v:0", "-map", "1:a:0",
+            "-c:a", "aac", "-b:a", "192k", "-shortest",
+            final_mp4,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0:
+            final_video_url = f"/api/video/{session_id}"
+        else:
+            print(f"[SegmentDub] FFmpeg muxing error: {result.stderr[:500]}")
+
+    return {
+        "audio_url": f"/api/audio/{session_id}",
+        "video_url": final_video_url,
+        "provider": "gemini_single_per_segment",
+        "num_speakers": num_speakers,
+        "segment_count": len(segments),
+        "speakers": [
+            {
+                "name": s.get("name"),
+                "gender": s.get("gender"),
+                "voice": gemini_seg.resolve_voice_for_speaker(s),
+                "archetype": s.get("character_archetype"),
+            }
+            for s in analysis.get("speakers", [])
+        ],
+        "language_used": target_lang if is_dubbing else analysis.get("language"),
+    }
+
+
 # -----------------
 # API Endpoints
 # -----------------
@@ -654,6 +869,59 @@ async def get_config():
             "gemini_seconds_per_block": GEMINI_SECONDS_PER_BLOCK,
         },
     })
+
+@app.post("/api/upload-fast")
+async def process_upload_fast(file: UploadFile = File(...)):
+    """Upload + extract audio.mp3 ONLY — no Sarvam STT, no diarization.
+
+    Used by the Gemini per-segment dub flow: Gemini transcribes/diarizes the
+    audio itself during synthesis, so paying Sarvam for the same work is
+    wasteful and slow. This endpoint just lands the file + audio.mp3 in the
+    session dir and returns the session_id, ready for /api/synthesize with
+    synthesis_mode='single_per_segment_gemini'.
+    """
+    cleanup_expired_sessions()
+    if not file.filename.endswith(('.mp4', '.mov', '.avi')):
+        raise HTTPException(status_code=400, detail="Invalid file format")
+
+    session_id = str(uuid.uuid4())
+    session_dir = os.path.join(TEMP_DIR, session_id)
+    os.makedirs(session_dir, exist_ok=True)
+
+    video_path = os.path.join(session_dir, "input.mp4")
+    audio_path = os.path.join(session_dir, "audio.mp3")
+
+    try:
+        with open(video_path, "wb") as out:
+            while True:
+                chunk = await file.read(4 * 1024 * 1024)
+                if not chunk:
+                    break
+                out.write(chunk)
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to save upload: {str(e)}") from e
+
+    def _extract_sync() -> float:
+        t0 = time.perf_counter()
+        extract_audio(video_path, audio_path)
+        return time.perf_counter() - t0
+
+    try:
+        audio_extract_seconds = await asyncio.to_thread(_extract_sync)
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Audio extraction failed: {str(e)}") from e
+
+    audio_duration_seconds = get_audio_duration_seconds(audio_path)
+
+    return JSONResponse(content={
+        "session_id": session_id,
+        "message": "Upload successful (STT skipped — Gemini will transcribe at synth time)",
+        "audio_duration_seconds": round(audio_duration_seconds, 2),
+        "audio_extract_seconds": round(audio_extract_seconds, 2),
+    })
+
 
 @app.post("/api/upload")
 async def process_upload(
@@ -838,6 +1106,63 @@ async def enhance_translation(req: EnhanceTranscriptRequest):
     })
 
 
+@app.post("/api/gemini/session-preview")
+async def gemini_session_preview(req: GeminiSessionPreviewRequest):
+    """Preview Gemini speaker-wise transcript for a session without synthesis.
+
+    This is used by Stage 3 manual mode so users can first see auto-detected
+    speaker turns/timestamps, then edit transcript/timeline/gender/voice
+    before final synthesis.
+    """
+    session_dir = os.path.join(TEMP_DIR, req.session_id)
+    audio_path = os.path.join(session_dir, "audio.mp3")
+    if not os.path.exists(audio_path):
+        raise HTTPException(status_code=404, detail="Session audio not found.")
+    if not GEMINI_API_KEY:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured.")
+
+    from pathlib import Path
+    from google import genai as _genai
+
+    try:
+        client = _genai.Client(api_key=GEMINI_API_KEY)
+        analysis = await asyncio.to_thread(gemini_seg.analyse_audio, client, Path(audio_path), GEMINI_MODEL)
+        source_lang = analysis.get("language", "en-US")
+        target_lang = (req.target_lang or "").strip()
+        if target_lang and target_lang != source_lang:
+            await asyncio.to_thread(
+                gemini_seg.translate_segments_in_place,
+                client,
+                analysis,
+                target_lang,
+                GEMINI_MODEL,
+            )
+
+        segments = analysis.get("segments", []) or []
+        speakers = analysis.get("speakers", []) or []
+        blocks = []
+        for i, seg in enumerate(segments):
+            blocks.append({
+                "id": f"gemini-preview-{i}",
+                "speakers": [seg.get("speaker", "S0")],
+                "transcript": seg.get("tagged_text") or seg.get("text") or "",
+                "timestamps": [float(seg.get("start", 0.0) or 0.0), float(seg.get("end", 0.0) or 0.0)],
+            })
+
+        return JSONResponse(content={
+            "blocks": blocks,
+            "speakers": speakers,
+            "source_language": source_lang,
+            "target_language": target_lang or source_lang,
+            "num_speakers": analysis.get("num_speakers", len(speakers) or 1),
+        })
+    except HTTPException:
+        raise
+    except Exception as exc:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Gemini preview failed: {exc}")
+
+
 @app.post("/api/synthesize")
 async def synthesize_audio(req: SynthesisRequest):
     cleanup_expired_sessions()
@@ -958,6 +1283,26 @@ async def synthesize_audio(req: SynthesisRequest):
                 "failed_block_count": len(failed_blocks),
                 "failed_blocks": failed_blocks,
             })
+
+        if req.synthesis_mode == "single_per_segment_gemini":
+            # N-speaker (1, 2, 3, 4+) Gemini pipeline:
+            # Gemini analyses the audio, gives per-segment timestamps + voice
+            # assignments per speaker, we run single-speaker TTS per segment,
+            # speed-match each clip, and overlay onto a silent timeline.
+            voice_map_dict = {m.speaker_id: m.voice_id for m in req.voice_map}
+            payload = await asyncio.to_thread(
+                _synthesize_per_segment_gemini_sync,
+                session_dir,
+                session_id,
+                req.target_lang,
+                req.target_duration_ms,
+                GEMINI_MODEL,
+                req.transcript_blocks,
+                voice_map_dict,
+                req.speaker_genders,
+                not req.auto_detect_speakers,
+            )
+            return JSONResponse(content=payload)
 
         input_video = os.path.join(session_dir, "input.mp4")
         input_audio = os.path.join(session_dir, "audio.mp3")

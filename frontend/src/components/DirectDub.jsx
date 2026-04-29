@@ -110,10 +110,10 @@ export default function DirectDub({ apiBase }) {
           await finalize(sid, did, lang);
         } else if (status === 'failed' || status === 'error') {
           stopPoll();
-          setErrorMsg(`ElevenLabs dubbing failed (status: ${status}). Check your plan supports this language.`);
+          setErrorMsg(`PARROT AI dubbing failed (status: ${status}). Check your plan supports this language.`);
           setPhase('error');
         } else {
-          setStatusText(`ElevenLabs processing… (${status || 'dubbing'})`);
+          setStatusText(`PARROT AI processing… (${status || 'dubbing'})`);
         }
       } catch (pollErr) {
         console.warn('[DirectDub] Poll error (transient, retrying):', pollErr.message);
@@ -124,7 +124,7 @@ export default function DirectDub({ apiBase }) {
   const handleStart = async () => {
     if (!file) { alert('Please select a video or audio file.'); return; }
     setPhase('processing');
-    setStatusText('Uploading to ElevenLabs…');
+    setStatusText('Uploading to PARROT AI…');
     setErrorMsg('');
     stopPoll();
 
@@ -144,16 +144,16 @@ export default function DirectDub({ apiBase }) {
       sessionRef.current = session_id;
       dubbingIdRef.current = dubbing_id;
       setDubbingId(dubbing_id);
-      setStatusText('ElevenLabs is dubbing your video…');
+      setStatusText('PARROT AI is dubbing your video…');
       startPolling(session_id, dubbing_id, targetLangRef.current);
     } catch (err) {
       console.error('[DirectDub] Start Error:', err);
       let detail = err?.response?.data?.detail || err.message;
       
       // If detail is a stringified JSON (common from backend proxying ElevenLabs), try to extract just the message
-      if (typeof detail === 'string' && detail.includes('ElevenLabs dubbing create failed:')) {
+      if (typeof detail === 'string' && detail.includes('PARROT AI dubbing create failed:')) {
         try {
-          const jsonStr = detail.replace('ElevenLabs dubbing create failed:', '').trim();
+          const jsonStr = detail.replace('PARROT AI dubbing create failed:', '').trim();
           const parsed = JSON.parse(jsonStr);
           if (parsed.detail?.message) detail = parsed.detail.message;
           else if (parsed.message) detail = parsed.message;
@@ -199,11 +199,11 @@ export default function DirectDub({ apiBase }) {
           padding: '0.4rem 1.2rem', borderRadius: 999, marginBottom: '1rem',
           fontSize: '0.82rem', fontWeight: 700, letterSpacing: '0.08em', color: 'white',
         }}>
-          <Zap size={14} /> ELEVENLABS END-TO-END
+          <Zap size={14} /> PARROT AI END-TO-END
         </div>
         <h2 style={{ fontSize: '1.8rem', margin: '0 0 0.5rem' }}>Direct AI Dubbing</h2>
         <p style={{ color: 'var(--text-muted)', margin: 0 }}>
-          Upload your video — ElevenLabs handles everything. No transcription step needed.
+          Upload your video — PARROT AI handles everything. No transcription step needed.
         </p>
       </div>
 
@@ -307,11 +307,11 @@ export default function DirectDub({ apiBase }) {
           opacity: file ? 1 : 0.5,
         }}
       >
-        <Zap size={18} /> Start ElevenLabs Dubbing → {langFlag} {langName}
+        <Zap size={18} /> Start PARROT AI Dubbing → {langFlag} {langName}
       </button>
 
       <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.82rem', marginTop: '0.75rem' }}>
-        Requires ElevenLabs Creator plan or higher for audio files. Video files supported on all plans (watermark may apply).
+        Requires PARROT AI Creator plan or higher for audio files. Video files supported on all plans (watermark may apply).
       </p>
     </div>
   );
@@ -353,7 +353,7 @@ export default function DirectDub({ apiBase }) {
       </div>
 
       <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-        ElevenLabs is separating speakers, translating, and cloning voices.<br />
+        PARROT AI is separating speakers, translating, and cloning voices.<br />
         Typical wait: <strong>1–5 minutes</strong> depending on video length.
       </p>
     </div>

@@ -19,9 +19,23 @@ results/
 *.mp4
 *.mov
 *.avi
+*.mkv
+*.webm
+*.flv
+*.m4v
 *.mp3
 *.wav
 *.pcm
+*.m4a
+*.aac
+*.flac
+*.ogg
+*.opus
+*.crdownload
+
+# Generated media/output folders
+output/
+downloads/
 
 # OS generated
 Thumbs.db

@@ -7,9 +7,11 @@ import {
   formatElapsedClock,
 } from '../timeEstimates';
 
-export default function Stage1Upload({ apiBase, onComplete }) {
+export default function Stage1Upload({ apiBase, onComplete, onFastUploadComplete }) {
   const [file, setFile] = useState(null);
   const [sourceLang, setSourceLang] = useState('hi-IN');
+  const [skipStt, setSkipStt] = useState(false);
+  const [targetLang, setTargetLang] = useState('hi-IN');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [timingCfg, setTimingCfg] = useState(null);
@@ -94,6 +96,29 @@ export default function Stage1Upload({ apiBase, onComplete }) {
     if (!file) return;
     setLoading(true);
     setError('');
+
+    // Fast path: skip Sarvam STT and jump directly to Stage 3 in Gemini
+    // per-segment dub mode. Gemini will transcribe + diarize at synth time.
+    if (skipStt) {
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        const res = await axios.post(`${apiBase}/upload-fast`, formData, { timeout: 0 });
+        if (typeof onFastUploadComplete === 'function') {
+          onFastUploadComplete(file, res.data.session_id, targetLang);
+        } else {
+          // Defensive fallback if parent didn't wire the new callback.
+          onComplete([], file, res.data.session_id, sourceLang === 'auto' ? 'hi-IN' : sourceLang);
+        }
+      } catch (err) {
+        console.error(err);
+        const detail = err?.response?.data?.detail || err.message || 'Unknown error';
+        setError(`Fast upload failed: ${detail}`);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
 
     const formData = new FormData();
     formData.append('file', file);
@@ -187,30 +212,85 @@ export default function Stage1Upload({ apiBase, onComplete }) {
         )}
       </div>
 
-      <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
-         <label style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>Original Audio Language</label>
-         <select 
-           value={sourceLang} 
-           onChange={(e) => setSourceLang(e.target.value)}
-           style={{ background: 'rgba(15, 23, 42, 0.8)', border: '1px solid var(--border-light)', padding: '0.5rem', borderRadius: '8px', color: 'white', minWidth: '200px' }}
-         >
-           <option value="auto">Auto-Detect</option>
-           <option value="hi-IN">Hindi (hi-IN)</option>
-           <option value="en-IN">English (en-IN)</option>
-           <option value="bn-IN">Bengali (bn-IN)</option>
-           <option value="ta-IN">Tamil (ta-IN)</option>
-           <option value="te-IN">Telugu (te-IN)</option>
-           <option value="mr-IN">Marathi (mr-IN)</option>
-           <option value="gu-IN">Gujarati (gu-IN)</option>
-           <option value="kn-IN">Kannada (kn-IN)</option>
-           <option value="ml-IN">Malayalam (ml-IN)</option>
-           <option value="pa-IN">Punjabi (pa-IN)</option>
-         </select>
+      {!skipStt && (
+        <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+           <label style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>Original Audio Language</label>
+           <select 
+             value={sourceLang} 
+             onChange={(e) => setSourceLang(e.target.value)}
+             style={{ background: 'rgba(15, 23, 42, 0.8)', border: '1px solid var(--border-light)', padding: '0.5rem', borderRadius: '8px', color: 'white', minWidth: '200px' }}
+           >
+             <option value="auto">Auto-Detect</option>
+             <option value="hi-IN">Hindi (hi-IN)</option>
+             <option value="en-IN">English (en-IN)</option>
+             <option value="bn-IN">Bengali (bn-IN)</option>
+             <option value="ta-IN">Tamil (ta-IN)</option>
+             <option value="te-IN">Telugu (te-IN)</option>
+             <option value="mr-IN">Marathi (mr-IN)</option>
+             <option value="gu-IN">Gujarati (gu-IN)</option>
+             <option value="kn-IN">Kannada (kn-IN)</option>
+             <option value="ml-IN">Malayalam (ml-IN)</option>
+             <option value="pa-IN">Punjabi (pa-IN)</option>
+           </select>
+        </div>
+      )}
+
+      <div
+        style={{
+          marginTop: '1.5rem',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: '0.5rem',
+          maxWidth: '560px',
+          marginLeft: 'auto',
+          marginRight: 'auto',
+          padding: '0.85rem 1rem',
+          borderRadius: '10px',
+          border: '1px solid rgba(139, 92, 246, 0.4)',
+          background: 'rgba(139, 92, 246, 0.08)',
+        }}
+      >
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.95rem', color: '#c4b5fd', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={skipStt}
+            onChange={(e) => setSkipStt(e.target.checked)}
+            style={{ accentColor: '#8b5cf6' }}
+          />
+          <strong>Skip transcription — Gemini per-segment dub</strong>
+        </label>
+        <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.45 }}>
+          Skip the slow Sarvam STT step. Gemini will transcribe, diarize (any number of speakers),
+          translate and dub the audio in one shot. You will jump directly to Stage 3.
+        </p>
+
+        {skipStt && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.35rem', marginTop: '0.5rem' }}>
+            <label style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Target dub language</label>
+            <select
+              value={targetLang}
+              onChange={(e) => setTargetLang(e.target.value)}
+              style={{ background: 'rgba(15, 23, 42, 0.8)', border: '1px solid var(--border-light)', padding: '0.5rem', borderRadius: '8px', color: 'white', minWidth: '200px' }}
+            >
+              <option value="hi-IN">Hindi (hi-IN)</option>
+              <option value="en-IN">English (en-IN)</option>
+              <option value="bn-IN">Bengali (bn-IN)</option>
+              <option value="ta-IN">Tamil (ta-IN)</option>
+              <option value="te-IN">Telugu (te-IN)</option>
+              <option value="mr-IN">Marathi (mr-IN)</option>
+              <option value="gu-IN">Gujarati (gu-IN)</option>
+              <option value="kn-IN">Kannada (kn-IN)</option>
+              <option value="ml-IN">Malayalam (ml-IN)</option>
+              <option value="pa-IN">Punjabi (pa-IN)</option>
+            </select>
+          </div>
+        )}
       </div>
 
       {error && <p style={{color: '#ef4444', marginTop: '1rem'}}>{error}</p>}
 
-      {file && !loading && Number.isFinite(videoDurationSec) && videoDurationSec > 0 && (
+      {file && !loading && !skipStt && Number.isFinite(videoDurationSec) && videoDurationSec > 0 && (
         <p style={{ color: 'var(--text-muted)', marginTop: '1rem', fontSize: '0.9rem' }}>
           Detected video length {Math.ceil(videoDurationSec / 60)} min — typical STT wait{' '}
           <strong>{formatEtaRange(sttEtaSeconds)}</strong> (rough guide; queue load varies).
@@ -226,11 +306,11 @@ export default function Stage1Upload({ apiBase, onComplete }) {
           {loading ? (
             <>
               <Loader2 className="loader" size={20} />
-              Processing (Extracting Audio & Preparing)...
+              {skipStt ? 'Uploading (no STT)...' : 'Processing (Extracting Audio & Preparing)...'}
             </>
-          ) : 'Upload & Prepare for Translation'}
+          ) : skipStt ? 'Upload & Jump to Gemini Dub' : 'Upload & Prepare for Translation'}
         </button>
-        {loading && (
+        {loading && !skipStt && (
           <p
             style={{
               color: 'var(--text-muted)',
@@ -245,6 +325,21 @@ export default function Stage1Upload({ apiBase, onComplete }) {
             <strong>{formatEtaRange(sttEtaSeconds)}</strong>
             {' · '}
             Elapsed <strong>{formatElapsedClock(elapsedSec)}</strong>
+          </p>
+        )}
+        {loading && skipStt && (
+          <p
+            style={{
+              color: 'var(--text-muted)',
+              marginTop: '1rem',
+              fontSize: '0.92rem',
+              maxWidth: '420px',
+              marginLeft: 'auto',
+              marginRight: 'auto',
+            }}
+          >
+            Just extracting audio — no STT call. Elapsed{' '}
+            <strong>{formatElapsedClock(elapsedSec)}</strong>
           </p>
         )}
       </div>
