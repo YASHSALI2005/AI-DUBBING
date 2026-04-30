@@ -775,29 +775,64 @@ def call_gemini_for_transcript_enhancement(
     source_lang: str,
     target_lang: str,
 ) -> str:
+    """Insert Gemini-style audio tags into a translated line.
+
+    Follows Google's TTS prompting guide
+    (https://ai.google.dev/gemini-api/docs/speech-generation#prompting-guide):
+    structured Audio Profile / Scene / Director's Notes / Transcript / Audio Tags
+    sections, English-only square-bracket tags drawn from the canonical list,
+    with placement at the start of a line or inline."""
     if not GEMINI_API_KEY:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured.")
 
+    target_label = GEMINI_LANGUAGE_NAMES.get(target_lang, target_lang)
+    source_label = GEMINI_LANGUAGE_NAMES.get(source_lang, source_lang)
+
     prompt = f"""
-You are a strict dubbing transcript post-editor for TTS.
+You are preparing a single dubbing line for a Gemini-style TTS engine.
+You will be given the ORIGINAL audio for tone reference and a translated line of text.
+Your job is to return that translated line with inline AUDIO TAGS inserted so the TTS
+delivers it with the right pacing, emotion, and emphasis.
 
-Task:
-Refine the current translated line so it sounds natural when spoken, but stay very close to the original meaning and structure. Add appropriate inline audio tags in square brackets (e.g., [laughs], [whispers], [excitedly]) to guide the TTS delivery, pacing, and emotional vibe.
+Follow the official Gemini speech-generation prompting guide.
 
-Hard constraints:
-- Output language must be exactly: {target_lang}
-- Audio tags MUST strictly be in English enclosed in square brackets (e.g., [sighs], [very fast], [sarcastically]), even if {target_lang} is not English.
-- Source-language context for disambiguation: {source_lang}
-- Keep named entities unchanged (person/place/organization names).
-- Do NOT add new facts or implications not present in the line, but DO use audio tags to express the underlying emotional context.
-- Keep clause order mostly unchanged.
-- Use simple, clear spoken wording that a TTS voice pronounces reliably.
-- Avoid fancy idioms/slang unless explicitly present.
-- Match tone from the audio chunk (speaker={speaker_label}, gender_hint={speaker_gender}) by placing relevant audio tags at the start of the line or inline right before specific phrases (e.g., "[amazed] Wow, [whispers] I didn't see that coming.").
-- Return exactly one cleaned line including the inserted audio tags, no labels, no notes, no quotation marks.
+# Audio Profile
+- Speaker label: {speaker_label}
+- Gender hint:   {speaker_gender or 'unknown'}
+- Listen to the attached audio clip to capture the speaker's mood, energy and pace.
 
-Current translated line:
+# Scene
+- Source language: {source_label}
+- Target language: {target_label}
+- This line is part of a continuous dubbed conversation. Match the emotional register
+  heard in the audio (calm vs. excited, serious vs. playful, fast vs. slow, etc.).
+
+# Director's Notes
+- Preserve the meaning and clause order of the translated line; do NOT add new facts.
+- Keep named entities (people, places, organisations) unchanged.
+- Use natural, conversational phrasing that a TTS voice can pronounce reliably.
+- Output text MUST stay in {target_label}.
+- Audio tags MUST be in English, in square brackets, even when the line is not English.
+
+# Audio Tags (canonical set — pick the most fitting; use sparingly, 0-3 per line)
+Emotion / tone:
+  [amazed], [bored], [crying], [curious], [excited], [excitedly], [happily],
+  [mischievously], [panicked], [reluctantly], [sarcastic], [sarcastically],
+  [serious], [tired], [trembling]
+Vocal action:
+  [sighs], [gasp], [giggles], [laughs], [shouts], [shouting], [whispers], [cough]
+Pacing:
+  [very fast], [very slow]
+
+Place tags at the start of the line, or inline immediately before the phrase they
+modify, e.g.: "[amazed] Wow, [whispers] I didn't see that coming."
+
+# Translated line
 {text}
+
+# Output
+Return EXACTLY one line: the translated text in {target_label} with audio tags
+inserted. No labels, no quotation marks, no commentary, no extra lines.
 """.strip()
 
     payload = {
@@ -1483,11 +1518,16 @@ async def enhance_translation(req: EnhanceTranscriptRequest):
                 source_lang=resolved_source_lang,
                 target_lang=resolved_target_lang,
             )
-            emotion_tags, cleaned_refined = extract_emotion_tags_and_clean_text(refined)
+            tagged_text = refined.strip() or text
+            emotion_tags, _ = extract_emotion_tags_and_clean_text(tagged_text)
             updated = {
                 **block,
-                "transcript":   cleaned_refined or text,
-                "emotion_tags": emotion_tags,
+                # Keep audio tags inline in the transcript so the UI and the
+                # downstream TTS step both receive them. emotion_tags is the
+                # parsed list for any consumer that wants them separated.
+                "transcript":        tagged_text,
+                "tagged_transcript": tagged_text,
+                "emotion_tags":      emotion_tags,
             }
             return index, updated, None
         except Exception as exc:
