@@ -2,39 +2,10 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { Upload, Zap, CheckCircle, Download, Film, RefreshCw, Loader2, X, Globe2, Mic2, AlertTriangle } from 'lucide-react';
 
-const LANGUAGES = [
+const FALLBACK_LANGUAGES = [
   { code: 'hi',  name: 'Hindi',       flag: '🇮🇳' },
-  { code: 'en',  name: 'English',     flag: '🇬🇧' },
-  { code: 'es',  name: 'Spanish',     flag: '🇪🇸' },
-  { code: 'fr',  name: 'French',      flag: '🇫🇷' },
-  { code: 'de',  name: 'German',      flag: '🇩🇪' },
-  { code: 'ja',  name: 'Japanese',    flag: '🇯🇵' },
-  { code: 'zh',  name: 'Chinese',     flag: '🇨🇳' },
-  { code: 'ar',  name: 'Arabic',      flag: '🇸🇦' },
-  { code: 'pt',  name: 'Portuguese',  flag: '🇧🇷' },
-  { code: 'it',  name: 'Italian',     flag: '🇮🇹' },
-  { code: 'ko',  name: 'Korean',      flag: '🇰🇷' },
-  { code: 'nl',  name: 'Dutch',       flag: '🇳🇱' },
-  { code: 'pl',  name: 'Polish',      flag: '🇵🇱' },
-  { code: 'ru',  name: 'Russian',     flag: '🇷🇺' },
-  { code: 'tr',  name: 'Turkish',     flag: '🇹🇷' },
-  { code: 'sv',  name: 'Swedish',     flag: '🇸🇪' },
   { code: 'ta',  name: 'Tamil',       flag: '🇮🇳' },
   { code: 'te',  name: 'Telugu',      flag: '🇮🇳' },
-  { code: 'id',  name: 'Indonesian',  flag: '🇮🇩' },
-  { code: 'ms',  name: 'Malay',       flag: '🇲🇾' },
-  { code: 'uk',  name: 'Ukrainian',   flag: '🇺🇦' },
-  { code: 'el',  name: 'Greek',       flag: '🇬🇷' },
-  { code: 'vi',  name: 'Vietnamese',  flag: '🇻🇳' },
-  { code: 'fil', name: 'Filipino',    flag: '🇵🇭' },
-  { code: 'ro',  name: 'Romanian',    flag: '🇷🇴' },
-  { code: 'hu',  name: 'Hungarian',   flag: '🇭🇺' },
-  { code: 'cs',  name: 'Czech',       flag: '🇨🇿' },
-  { code: 'da',  name: 'Danish',      flag: '🇩🇰' },
-  { code: 'fi',  name: 'Finnish',     flag: '🇫🇮' },
-  { code: 'no',  name: 'Norwegian',   flag: '🇳🇴' },
-  { code: 'sk',  name: 'Slovak',      flag: '🇸🇰' },
-  { code: 'bg',  name: 'Bulgarian',   flag: '🇧🇬' },
 ];
 
 const ACCEPTED_TYPES = ['.mp4', '.mov', '.avi', '.mkv', '.webm', '.mp3', '.wav', '.m4a'];
@@ -50,6 +21,8 @@ export default function DirectDub({ apiBase }) {
   const [phase, setPhase] = useState('upload');
   const [file, setFile] = useState(null);
   const [dragging, setDragging] = useState(false);
+  const [languages, setLanguages] = useState(FALLBACK_LANGUAGES);
+  const [languagesLoading, setLanguagesLoading] = useState(true);
   const [targetLang, setTargetLang] = useState('hi');
   const [numSpeakers, setNumSpeakers] = useState(0);
   const [disableCloning, setDisableCloning] = useState(false);
@@ -68,6 +41,27 @@ export default function DirectDub({ apiBase }) {
   const targetLangRef = useRef(targetLang);
 
   useEffect(() => { targetLangRef.current = targetLang; }, [targetLang]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await axios.get(`${apiBase}/dub-direct/languages`);
+        const list = res.data?.languages || [];
+        if (!cancelled && list.length) {
+          setLanguages(list.map((l) => ({ code: l.code, name: l.name, flag: l.flag })));
+          if (!list.some((l) => l.code === targetLangRef.current)) {
+            setTargetLang(list[0].code);
+          }
+        }
+      } catch (err) {
+        console.warn('Could not load ElevenLabs language list — using fallback.', err);
+      } finally {
+        if (!cancelled) setLanguagesLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [apiBase]);
 
   useEffect(() => {
     if (phase === 'processing') {
@@ -186,8 +180,8 @@ export default function DirectDub({ apiBase }) {
     if (f) setFile(f);
   };
 
-  const langName = LANGUAGES.find(l => l.code === targetLang)?.name || targetLang;
-  const langFlag = LANGUAGES.find(l => l.code === targetLang)?.flag || '🌐';
+  const langName = languages.find(l => l.code === targetLang)?.name || targetLang;
+  const langFlag = languages.find(l => l.code === targetLang)?.flag || '🌐';
 
   /* ─── UPLOAD PHASE ─── */
   if (phase === 'upload') return (
@@ -249,14 +243,15 @@ export default function DirectDub({ apiBase }) {
       {/* Language Selector */}
       <div className="form-group" style={{ marginBottom: '1.25rem' }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-          <Globe2 size={15} /> Target Language
+          <Globe2 size={15} /> Target Language {languagesLoading && <span style={{ opacity: 0.6 }}>(loading...)</span>}
         </label>
         <select
           value={targetLang}
           onChange={e => setTargetLang(e.target.value)}
+          disabled={languagesLoading}
           style={{ background: 'rgba(15,23,42,0.8)' }}
         >
-          {LANGUAGES.map(l => (
+          {languages.map(l => (
             <option key={l.code} value={l.code}>{l.flag} {l.name} ({l.code})</option>
           ))}
         </select>

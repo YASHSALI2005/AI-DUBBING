@@ -436,7 +436,7 @@ select:focus, input:not([type='checkbox']):focus, textarea:focus {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   min-width: 0;
 }
 
@@ -449,8 +449,15 @@ select:focus, input:not([type='checkbox']):focus, textarea:focus {
   min-width: 0;
 }
 
-.name-row .btn-ref,
-.name-row .btn-icon {
+.speaker-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.22rem;
+}
+
+.speaker-actions .btn-ref,
+.speaker-actions .btn-icon {
   flex: 0 0 auto;
 }
 
@@ -491,6 +498,8 @@ select:focus, input:not([type='checkbox']):focus, textarea:focus {
   padding: 0.32rem 0.55rem;
   font-size: 0.78rem;
   width: fit-content;
+  min-height: 1.8rem;
+  white-space: nowrap;
 }
 
 .btn-ref:hover {

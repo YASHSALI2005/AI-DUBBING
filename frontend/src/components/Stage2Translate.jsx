@@ -4,7 +4,8 @@ import { CheckCircle, PlayCircle, X, Edit3, User } from 'lucide-react';
 
 const FALLBACK_LANGUAGES = [
   { code: 'hi', name: 'Hindi' },
-  { code: 'en', name: 'English' },
+  { code: 'ta', name: 'Tamil' },
+  { code: 'te', name: 'Telugu' },
 ];
 
 function fmtTime(s) {
@@ -23,6 +24,7 @@ export default function Stage2Transcript({ apiBase, blocks: initialBlocks, video
   const [nameInput, setNameInput]     = useState('');
   const [playingVideo, setPlayingVideo] = useState(false);
   const [seekTime, setSeekTime]       = useState(0);
+  const [previewEndTime, setPreviewEndTime] = useState(null);
   const videoRef    = useRef(null);
   const playTimer   = useRef(null);
   const videoUrl    = useMemo(() => videoFile ? URL.createObjectURL(videoFile) : null, [videoFile]);
@@ -90,20 +92,54 @@ export default function Stage2Transcript({ apiBase, blocks: initialBlocks, video
     if (!first || !videoRef.current) return;
     clearTimeout(playTimer.current);
     const t = Number(first.timestamps?.[0] || 0);
+    const end = Number(first.timestamps?.[1]);
+    const safeEnd = Number.isFinite(end) && end > t ? end : (t + 5);
     setSeekTime(t);
+    setPreviewEndTime(safeEnd);
     setPlayingVideo(true);
-    videoRef.current.currentTime = t;
-    videoRef.current.play().catch(() => {});
+    const video = videoRef.current;
+
+    const startPlayback = () => {
+      try {
+        video.currentTime = t;
+      } catch (_) {
+        // Ignore seek timing race; loadedmetadata handler retries with seekTime.
+      }
+      video.play().catch(() => {});
+    };
+
+    if (video.readyState >= 1) {
+      startPlayback();
+    }
+
+    const previewMs = Math.max(1200, Math.min(5000, (safeEnd - t) * 1000));
     playTimer.current = setTimeout(() => {
       videoRef.current?.pause();
       setPlayingVideo(false);
-    }, 5000);
+    }, previewMs);
   };
 
   const stopPreview = () => {
     clearTimeout(playTimer.current);
     videoRef.current?.pause();
     setPlayingVideo(false);
+  };
+
+  const handleVideoLoadedMetadata = () => {
+    if (!playingVideo || !videoRef.current) return;
+    try {
+      videoRef.current.currentTime = seekTime;
+    } catch (_) {
+      return;
+    }
+    videoRef.current.play().catch(() => {});
+  };
+
+  const handleVideoTimeUpdate = () => {
+    if (!playingVideo || !videoRef.current || previewEndTime == null) return;
+    if (videoRef.current.currentTime >= previewEndTime) {
+      stopPreview();
+    }
   };
 
   const handleConfirm = () => {
@@ -159,6 +195,10 @@ export default function Stage2Transcript({ apiBase, blocks: initialBlocks, video
                 ) : (
                   <div className="name-row">
                     <span className="speaker-name">{displayName(sid)}</span>
+                  </div>
+                )}
+                {editingName !== sid && (
+                  <div className="speaker-actions">
                     {videoUrl && (
                       <button
                         className="btn-ref"
@@ -168,7 +208,7 @@ export default function Stage2Transcript({ apiBase, blocks: initialBlocks, video
                         <PlayCircle size={13} /> Reference
                       </button>
                     )}
-                    <button className="btn-icon ghost" onClick={() => startRename(sid)} title="Rename">
+                    <button className="btn-icon ghost" onClick={() => startRename(sid)} title="Rename speaker">
                       <Edit3 size={13} />
                     </button>
                   </div>
@@ -247,6 +287,9 @@ export default function Stage2Transcript({ apiBase, blocks: initialBlocks, video
               style={{ width: '100%', borderRadius: 8 }}
               controls
               preload="metadata"
+              playsInline
+              onLoadedMetadata={handleVideoLoadedMetadata}
+              onTimeUpdate={handleVideoTimeUpdate}
             />
           </div>
         </div>
