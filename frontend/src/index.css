@@ -1,12 +1,13 @@
 :root {
   --bg-dark: #0A0A0A;
   --bg-card: rgba(15, 15, 15, 0.6);
-  --primary: #3b82f6;
-  --primary-hover: #2563eb;
-  --accent: #8b5cf6;
+  --primary: #3fa66b;
+  --primary-hover: #2e8a55;
+  --accent: #d9a85b;
   --text-light: #f8fafc;
   --text-muted: #a1a1aa;
   --border-light: rgba(255, 255, 255, 0.08);
+  --color-success: #3fa66b;
 }
 
 * {
@@ -18,9 +19,9 @@
 body {
   font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
   background-color: var(--bg-dark);
-  background-image: 
-    radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.08) 0px, transparent 40%),
-    radial-gradient(at 100% 100%, rgba(139, 92, 246, 0.08) 0px, transparent 40%);
+  background-image:
+    radial-gradient(at 0% 0%, rgba(63, 166, 107, 0.08) 0px, transparent 40%),
+    radial-gradient(at 100% 100%, rgba(217, 168, 91, 0.06) 0px, transparent 40%);
   color: var(--text-light);
   min-height: 100vh;
   display: flex;
@@ -104,7 +105,7 @@ body {
 .step.active {
   border-color: var(--primary);
   color: var(--primary);
-  box-shadow: 0 0 15px rgba(59, 130, 246, 0.5);
+  box-shadow: 0 0 15px rgba(63, 166, 107, 0.45);
 }
 
 .step.completed {
@@ -125,7 +126,7 @@ body {
 
 .upload-zone:hover {
   border-color: var(--primary);
-  background: rgba(59, 130, 246, 0.05);
+  background: rgba(63, 166, 107, 0.06);
 }
 
 .upload-icon {
@@ -194,7 +195,7 @@ select, input:not([type='checkbox']), textarea {
 
 select:focus, input:not([type='checkbox']):focus, textarea:focus {
   border-color: var(--primary);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+  box-shadow: 0 0 0 2px rgba(63, 166, 107, 0.22);
 }
 
 /* Scrollbars */
@@ -282,8 +283,8 @@ select:focus, input:not([type='checkbox']):focus, textarea:focus {
 }
 
 .upload-zone.has-file {
-  border-color: rgba(59, 130, 246, 0.45);
-  background: rgba(59, 130, 246, 0.08);
+  border-color: rgba(63, 166, 107, 0.45);
+  background: rgba(63, 166, 107, 0.08);
 }
 
 .upload-file-info,
@@ -415,8 +416,8 @@ select:focus, input:not([type='checkbox']):focus, textarea:focus {
   width: 1.9rem;
   height: 1.9rem;
   border-radius: 999px;
-  background: rgba(59, 130, 246, 0.2);
-  color: #bfdbfe;
+  background: rgba(63, 166, 107, 0.2);
+  color: #b6e6c9;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -475,15 +476,16 @@ select:focus, input:not([type='checkbox']):focus, textarea:focus {
 }
 
 .btn-ref {
-  background: rgba(59, 130, 246, 0.14);
-  color: #bfdbfe;
-  border: 1px solid rgba(59, 130, 246, 0.35);
-  padding: 0.48rem 0.65rem;
+  background: rgba(63, 166, 107, 0.14);
+  color: #b6e6c9;
+  border: 1px solid rgba(63, 166, 107, 0.35);
+  padding: 0.32rem 0.55rem;
+  font-size: 0.78rem;
   width: fit-content;
 }
 
 .btn-ref:hover {
-  background: rgba(59, 130, 246, 0.24);
+  background: rgba(63, 166, 107, 0.24);
 }
 
 .transcript-table,
@@ -662,7 +664,7 @@ select:focus, input:not([type='checkbox']):focus, textarea:focus {
 }
 
 .tt-text.tagged {
-  border-color: rgba(59, 130, 246, 0.32);
+  border-color: rgba(63, 166, 107, 0.32);
 }
 
 .tag-badge-row {
@@ -673,9 +675,9 @@ select:focus, input:not([type='checkbox']):focus, textarea:focus {
 
 .tag-badge {
   font-size: 0.74rem;
-  color: #dbeafe;
-  background: rgba(59, 130, 246, 0.2);
-  border: 1px solid rgba(59, 130, 246, 0.36);
+  color: #cdf0db;
+  background: rgba(63, 166, 107, 0.2);
+  border: 1px solid rgba(63, 166, 107, 0.36);
   border-radius: 999px;
   padding: 0.18rem 0.5rem;
 }

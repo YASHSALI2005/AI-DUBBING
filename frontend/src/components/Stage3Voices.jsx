@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Languages, Wand2, Loader2, CheckCircle, Edit3, Info } from 'lucide-react';
+import { Languages, Loader2, CheckCircle, Edit3, Info } from 'lucide-react';
 
 function fmtTime(s) {
   const m = Math.floor(s / 60);
@@ -25,13 +25,11 @@ export default function Stage3Translate({
   sessionId,
   onComplete,
 }) {
-  const [phase, setPhase] = useState('idle'); // idle | translating | tagging | done
+  const [phase, setPhase] = useState('idle'); // idle | translating | done
   const [translatedBlocks, setTranslatedBlocks] = useState([]);
-  const [taggedBlocks, setTaggedBlocks]         = useState([]);
   const [editableBlocks, setEditableBlocks]     = useState([]);
   const [error, setError]       = useState('');
   const [elapsed, setElapsed]   = useState(0);
-  const [useGeminiTags, setUseGeminiTags] = useState(true);
   const timerRef   = useRef(null);
   const startRef   = useRef(null);
 
@@ -49,44 +47,26 @@ export default function Stage3Translate({
     startTimer();
 
     try {
-      // Step 1: ElevenLabs translation
       const transRes = await axios.post(`${apiBase}/translate`, {
         transcript_blocks: blocks,
         target_lang: targetLang,
         source_lang: sourceLang,
       });
       const tBlocks = transRes.data.blocks || [];
-      setTranslatedBlocks(tBlocks);
-
-      if (!useGeminiTags || !sessionId) {
-        // No tagging — use translated text as-is with tagged_transcript = transcript
-        const noTagBlocks = tBlocks.map((b) => ({ ...b, tagged_transcript: b.transcript, emotion_tags: [] }));
-        setTaggedBlocks(noTagBlocks);
-        setEditableBlocks(noTagBlocks.map((b, i) => ({ ...b, _key: i })));
-        setPhase('done');
-        stopTimer();
-        return;
-      }
-
-      // Step 2: Parrot Translate audio tag insertion
-      setPhase('tagging');
-      const tagRes = await axios.post(`${apiBase}/enhance-translation`, {
-        session_id: sessionId,
-        transcript_blocks: tBlocks,
-        source_lang: sourceLang,
-        target_lang: targetLang,
-        speaker_genders: {},
-      });
-      const tgBlocks = tagRes.data.blocks || tBlocks;
-      setTaggedBlocks(tgBlocks);
-      setEditableBlocks(tgBlocks.map((b, i) => ({ ...b, _key: i })));
+      const finalBlocks = tBlocks.map((b) => ({
+        ...b,
+        tagged_transcript: b.transcript,
+        emotion_tags: [],
+      }));
+      setTranslatedBlocks(finalBlocks);
+      setEditableBlocks(finalBlocks.map((b, i) => ({ ...b, _key: i })));
       setPhase('done');
       stopTimer();
     } catch (err) {
       stopTimer();
       setPhase('idle');
       const detail = err?.response?.data?.detail || err.message || 'Unknown error';
-      setError(`Pipeline failed: ${detail}`);
+      setError(`Translation failed: ${detail}`);
     }
   };
 
@@ -113,9 +93,9 @@ export default function Stage3Translate({
       <div className="stage-header">
         <span className="stage-badge">3</span>
         <div>
-          <h2 className="stage-title">Translate + Tag</h2>
+          <h2 className="stage-title">Translate</h2>
           <p className="stage-subtitle">
-             translates to {langName(targetLang)}, then Parrot Translate adds emotion tags
+            ElevenLabs translates to {langName(targetLang)}
           </p>
         </div>
       </div>
@@ -130,18 +110,6 @@ export default function Stage3Translate({
             </div>
           </div>
 
-          <label className="toggle-row">
-            <input
-              type="checkbox"
-              checked={useGeminiTags}
-              onChange={(e) => setUseGeminiTags(e.target.checked)}
-            />
-            <span>
-              Use Gemini 2.5 Pro to insert emotion/audio tags
-              <span className="toggle-sub"> (recommended — improves TTS delivery)</span>
-            </span>
-          </label>
-
           {error && <div className="error-banner">{error}</div>}
 
           <button className="btn-primary" onClick={runPipeline}>
@@ -151,16 +119,13 @@ export default function Stage3Translate({
         </>
       )}
 
-      {(phase === 'translating' || phase === 'tagging') && (
+      {phase === 'translating' && (
         <div className="processing-card">
           <Loader2 size={24} className="spin" />
           <div>
             <p className="proc-title">
-              {phase === 'translating'
-                ? `Translating ${blocks.length} segments via Parrot Translate…`
-                : 'Processing '}
+              Translating {blocks.length} segments via ElevenLabs…
             </p>
-            
           </div>
         </div>
       )}
@@ -176,7 +141,7 @@ export default function Stage3Translate({
           <div className="compare-grid">
             <div className="compare-col-header">Original transcript</div>
             <div className="compare-col-header">
-              Translated + tagged ({langName(targetLang)}) <Edit3 size={12} style={{ opacity: 0.6 }} />
+              Translated ({langName(targetLang)}) <Edit3 size={12} style={{ opacity: 0.6 }} />
             </div>
           </div>
 

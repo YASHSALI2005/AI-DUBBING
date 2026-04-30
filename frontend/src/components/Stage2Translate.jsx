@@ -162,6 +162,15 @@ export default function Stage2Transcript({ blocks: initialBlocks, videoFile, sou
                 ) : (
                   <div className="name-row">
                     <span className="speaker-name">{displayName(sid)}</span>
+                    {videoUrl && (
+                      <button
+                        className="btn-ref"
+                        onClick={() => playSpeaker(sid)}
+                        title="Preview reference voice"
+                      >
+                        <PlayCircle size={13} /> Reference
+                      </button>
+                    )}
                     <button className="btn-icon ghost" onClick={() => startRename(sid)} title="Rename">
                       <Edit3 size={13} />
                     </button>
@@ -170,11 +179,6 @@ export default function Stage2Transcript({ blocks: initialBlocks, videoFile, sou
                 <span className="speaker-meta">{blocksBySpeaker[sid] || 0} segments</span>
               </div>
             </div>
-            {videoUrl && (
-              <button className="btn-ref" onClick={() => playSpeaker(sid)}>
-                <PlayCircle size={14} /> Preview voice
-              </button>
-            )}
           </div>
         ))}
       </div>
