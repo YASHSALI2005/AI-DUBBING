@@ -100,7 +100,8 @@ def _verify_password(pwd: str, stored_hash: str) -> bool:
 
 def _create_token(user: "User") -> str:
     payload = {
-        "sub":  user.id,
+        # PyJWT validates "sub" must be a string during decode.
+        "sub":  str(user.id),
         "name": user.name,
         "addr": user.address,
         "role": user.role,
@@ -130,7 +131,12 @@ def get_current_user(
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
-    user = db.get(User, payload.get("sub"))
+    sub = payload.get("sub")
+    try:
+        user_id = int(sub)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid token subject")
+    user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=401, detail="User no longer exists")
     return user
