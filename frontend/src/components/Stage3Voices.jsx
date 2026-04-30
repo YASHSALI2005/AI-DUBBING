@@ -68,31 +68,21 @@ export default function Stage3Translate({
     startTimer();
 
     try {
+      // One Gemini call per block: when session_id is provided AND the
+      // session audio is on disk, the backend translates and inserts audio
+      // tags in a single shot using Google's speech-generation prompting
+      // guide. Otherwise it falls back to text-only translation.
       const transRes = await axios.post(`${apiBase}/translate`, {
         transcript_blocks: blocks,
         target_lang: targetLang,
         source_lang: sourceLang,
+        session_id: sessionId || null,
       });
-      let tBlocks = transRes.data.blocks || [];
-
-      // Enrich translated lines with audio tags using original session audio context.
-      if (sessionId) {
-        try {
-          const enhanceRes = await axios.post(`${apiBase}/enhance-translation`, {
-            session_id: sessionId,
-            transcript_blocks: tBlocks,
-            source_lang: sourceLang,
-            target_lang: targetLang,
-          });
-          tBlocks = enhanceRes.data?.blocks || tBlocks;
-        } catch (enhanceErr) {
-          console.warn('Enhancement step failed, continuing with base translation.', enhanceErr);
-        }
-      }
+      const tBlocks = transRes.data.blocks || [];
 
       const finalBlocks = tBlocks.map((b) => ({
         ...b,
-        tagged_transcript: b.transcript,
+        tagged_transcript: b.tagged_transcript || b.transcript,
         emotion_tags: b.emotion_tags || [],
       }));
       setTranslatedBlocks(finalBlocks);

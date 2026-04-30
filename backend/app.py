@@ -303,6 +303,10 @@ class TranslateRequest(BaseModel):
     target_lang: str
     source_lang: str = "en"
     speaker_genders: Dict[str, str] = Field(default_factory=dict)
+    # Optional session id; when provided AND audio is available, /api/translate
+    # runs a single Gemini call per block that translates AND inserts audio
+    # tags in one shot (instead of the old translate-then-enhance two-step).
+    session_id: Optional[str] = None
 
 
 class SynthesisVoiceMap(BaseModel):
@@ -884,6 +888,156 @@ inserted. No labels, no quotation marks, no commentary, no extra lines.
     return merged_text
 
 
+def call_gemini_translate_and_tag(
+    source_text: str,
+    audio_chunk_b64: str,
+    speaker_label: str,
+    speaker_gender: str,
+    source_lang: str,
+    target_lang: str,
+) -> str:
+    """Translate a single line AND insert audio tags in one Gemini call.
+
+    Uses Google's TTS prompting guide structure (Audio Profile / Scene /
+    Director's Notes / Audio Tags) so the result lines up with the inline
+    bracketed-tag style that downstream Gemini TTS expects."""
+    if not GEMINI_API_KEY:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured.")
+
+    target_label = GEMINI_LANGUAGE_NAMES.get(target_lang, target_lang)
+    source_label = (
+        "the source language (auto-detect from audio)"
+        if not source_lang or source_lang.lower() == "auto"
+        else GEMINI_LANGUAGE_NAMES.get(source_lang, source_lang)
+    )
+
+    prompt = f"""
+You are translating one line of dialogue for a Gemini TTS dub.
+You receive the ORIGINAL audio for tone reference and the source line in text.
+Return the translated line with inline AUDIO TAGS so the TTS delivers it with
+the right pacing, emotion, and emphasis.
+
+Follow the official Gemini speech-generation prompting guide.
+
+# Audio Profile
+- Speaker label: {speaker_label}
+- Gender hint:   {speaker_gender or 'unknown'}
+- Listen to the attached audio clip to capture the speaker's mood, energy and pace.
+
+# Scene
+- Source language: {source_label}
+- Target language: {target_label}
+- This line is part of a continuous dubbed conversation. Match the emotional
+  register heard in the audio (calm vs. excited, serious vs. playful, etc.).
+
+# Director's Notes
+- Translate the meaning faithfully into {target_label}; do NOT add new facts.
+- Preserve named entities (people, places, organisations) unchanged.
+- Use natural, conversational phrasing that a TTS voice can pronounce reliably.
+- Keep clause order close to the source.
+- Output text MUST be in {target_label}.
+- Audio tags MUST be in English, in square brackets, even when the line is not English.
+- If the source line is already in {target_label}, just add audio tags.
+
+# Audio Tags (canonical set — pick the most fitting; use sparingly, 0-3 per line)
+Emotion / tone:
+  [amazed], [bored], [crying], [curious], [excited], [excitedly], [happily],
+  [mischievously], [panicked], [reluctantly], [sarcastic], [sarcastically],
+  [serious], [tired], [trembling], [warmly], [coldly]
+Vocal action:
+  [sighs], [gasp], [giggles], [laughs], [shouts], [shouting], [whispers], [cough]
+Pacing:
+  [very fast], [very slow]
+
+Place tags at the start of the line, or inline immediately before the phrase
+they modify, e.g.: "[amazed] Wow, [whispers] I didn't see that coming."
+
+# Source line ({source_label})
+{source_text}
+
+# Output
+Return EXACTLY one line: the translation in {target_label} with audio tags
+inserted. No labels, no quotation marks, no commentary, no extra lines.
+""".strip()
+
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt},
+                    {"inline_data": {"mime_type": "audio/wav", "data": audio_chunk_b64}},
+                ]
+            }
+        ],
+        "generationConfig": {"temperature": 0.3},
+    }
+
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{GEMINI_TRANSLATE_MODEL}:generateContent?key={urllib.parse.quote(GEMINI_API_KEY)}"
+    )
+    http_req = urllib.request.Request(
+        url=url,
+        method="POST",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(http_req, timeout=90) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise HTTPException(status_code=exc.code, detail=f"Gemini translate-and-tag failed: {detail}")
+
+    candidates = data.get("candidates") or []
+    if not candidates:
+        return source_text
+    parts = (((candidates[0] or {}).get("content") or {}).get("parts") or [])
+    merged = " ".join((p.get("text") or "").strip() for p in parts if p.get("text")).strip()
+    return merged or source_text
+
+
+def call_gemini_translate_and_tag_with_retry(
+    source_text: str,
+    audio_chunk_b64: str,
+    speaker_label: str,
+    speaker_gender: str,
+    source_lang: str,
+    target_lang: str,
+) -> str:
+    """Retry wrapper around call_gemini_translate_and_tag, mirroring the
+    backoff behaviour used by call_gemini_with_retry."""
+    last_exc: Optional[Exception] = None
+    for attempt in range(1, GEMINI_RETRY_ATTEMPTS + 1):
+        try:
+            return call_gemini_translate_and_tag(
+                source_text=source_text,
+                audio_chunk_b64=audio_chunk_b64,
+                speaker_label=speaker_label,
+                speaker_gender=speaker_gender,
+                source_lang=source_lang,
+                target_lang=target_lang,
+            )
+        except HTTPException as exc:
+            last_exc = exc
+            if exc.status_code not in (429, 503):
+                raise
+            if attempt >= GEMINI_RETRY_ATTEMPTS:
+                raise
+            retry_after = infer_retry_delay_seconds(str(exc.detail or ""))
+            if retry_after is None:
+                retry_after = min(GEMINI_RETRY_BASE_SECONDS * (2 ** (attempt - 1)), GEMINI_RETRY_MAX_SECONDS)
+            time.sleep(min(retry_after + 0.25, GEMINI_RETRY_MAX_SECONDS))
+        except Exception as exc:
+            last_exc = exc
+            if attempt >= GEMINI_RETRY_ATTEMPTS:
+                raise
+            time.sleep(min(GEMINI_RETRY_BASE_SECONDS * (2 ** (attempt - 1)), GEMINI_RETRY_MAX_SECONDS))
+    if last_exc:
+        raise last_exc
+    return source_text
+
+
 def infer_retry_delay_seconds(error_text: str) -> Optional[float]:
     if not error_text:
         return None
@@ -1413,48 +1567,120 @@ async def gemini_voices():
 async def translate_text(req: TranslateRequest):
     """Translate transcript blocks via Gemini generateContent.
 
-    Each block is translated independently (parallelized). Returns the same
-    block structure with 'transcript' replaced by the translated text.
+    Two paths:
+      1. session_id provided AND the session's audio.mp3 exists →
+         single Gemini call per block that translates AND inserts audio
+         tags inline using the speech-generation prompting guide. Output
+         carries inline tags ready for the TTS step.
+      2. otherwise → text-only translation (the previous behaviour).
     """
+    audio_path: Optional[str] = None
+    if req.session_id:
+        candidate = os.path.join(TEMP_DIR, req.session_id, "audio.mp3")
+        if os.path.exists(candidate):
+            audio_path = candidate
+
+    use_audio_tagging = audio_path is not None and bool(GEMINI_API_KEY)
+
     translated_blocks = [None] * len(req.transcript_blocks)
     failed_blocks: List[Dict[str, Any]] = []
 
     # Count non-empty translatable blocks for ETA
     translate_api_calls = sum(
         1 for b in req.transcript_blocks
-        if (b.get("transcript") or "").strip() and req.target_lang != req.source_lang
+        if (b.get("transcript") or "").strip()
     )
-    estimated_translate_seconds = estimate_translate_wall_seconds(translate_api_calls)
+    if use_audio_tagging:
+        estimated_translate_seconds = estimate_gemini_enhance_wall_seconds(translate_api_calls)
+        max_workers = max(1, GEMINI_MAX_WORKERS)
+    else:
+        estimated_translate_seconds = estimate_translate_wall_seconds(translate_api_calls)
+        max_workers = max(1, TRANSLATE_MAX_WORKERS)
     t_translate0 = time.perf_counter()
 
-    def process_block(index: int, block: Dict[str, Any]):
+    def process_block_text_only(index: int, block: Dict[str, Any]):
         speakers   = block.get("speakers", [])
         timestamps = block.get("timestamps", [])
         original   = block.get("transcript", "")
-
         try:
             if original.strip() and req.target_lang != req.source_lang:
-                trans_text = translate_text_with_retry(
-                    original,
-                    req.source_lang,
-                    req.target_lang,
-                )
+                trans_text = translate_text_with_retry(original, req.source_lang, req.target_lang)
             else:
                 trans_text = original
             error_text = None
-        except Exception as e:
+        except Exception as exc:
             print(f"Translation error for block {index}: {original[:50]}")
             traceback.print_exc()
             trans_text = original
-            error_text = str(e)
-
+            error_text = str(exc)
         return index, {
-            "transcript": trans_text,
-            "speakers":   speakers,
-            "timestamps": timestamps,
+            "transcript":        trans_text,
+            "tagged_transcript": trans_text,
+            "emotion_tags":      [],
+            "speakers":          speakers,
+            "timestamps":        timestamps,
         }, error_text
 
-    with ThreadPoolExecutor(max_workers=TRANSLATE_MAX_WORKERS) as executor:
+    def process_block_with_audio(index: int, block: Dict[str, Any]):
+        speakers   = block.get("speakers", []) or []
+        timestamps = block.get("timestamps", []) or []
+        original   = (block.get("transcript") or "").strip()
+        if not original:
+            return index, {
+                **block,
+                "transcript":        original,
+                "tagged_transcript": original,
+                "emotion_tags":      [],
+            }, None
+
+        speaker = speakers[0] if speakers else "S0"
+        gender  = req.speaker_genders.get(speaker, "unknown")
+        start_s = float(timestamps[0]) if isinstance(timestamps, list) and len(timestamps) > 0 else 0.0
+        end_s   = float(timestamps[1]) if isinstance(timestamps, list) and len(timestamps) > 1 else (start_s + 3.0)
+        if end_s <= start_s:
+            end_s = start_s + 3.0
+
+        try:
+            chunk_b64 = extract_audio_chunk_base64(audio_path, start_s, end_s)
+            tagged = call_gemini_translate_and_tag_with_retry(
+                source_text=original,
+                audio_chunk_b64=chunk_b64,
+                speaker_label=speaker,
+                speaker_gender=gender,
+                source_lang=req.source_lang,
+                target_lang=req.target_lang,
+            )
+            tagged = (tagged or original).strip()
+            emotion_tags, _ = extract_emotion_tags_and_clean_text(tagged)
+            return index, {
+                **block,
+                "transcript":        tagged,
+                "tagged_transcript": tagged,
+                "emotion_tags":      emotion_tags,
+                "speakers":          speakers,
+                "timestamps":        timestamps,
+            }, None
+        except Exception as exc:
+            print(f"Translate-and-tag error for block {index}: {original[:50]}")
+            traceback.print_exc()
+            # Fall back to text-only translation for this block so the rest
+            # of the pipeline still works.
+            try:
+                trans_text = translate_text_with_retry(original, req.source_lang, req.target_lang)
+            except Exception:
+                trans_text = original
+            return index, {
+                **block,
+                "transcript":        trans_text,
+                "tagged_transcript": trans_text,
+                "emotion_tags":      [],
+                "speakers":          speakers,
+                "timestamps":        timestamps,
+            }, str(exc)
+
+    process_block = process_block_with_audio if use_audio_tagging else process_block_text_only
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(process_block, i, b) for i, b in enumerate(req.transcript_blocks)]
         for future in as_completed(futures):
             idx, res_block, error_text = future.result()
@@ -1473,6 +1699,7 @@ async def translate_text(req: TranslateRequest):
         "translation_processing_seconds": round(translation_processing_seconds, 2),
         "provider": "gemini",
         "model":    GEMINI_TRANSLATE_MODEL,
+        "audio_tagged": use_audio_tagging,
     })
 
 
