@@ -1,34 +1,10 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import axios from 'axios';
 import { CheckCircle, PlayCircle, X, Edit3, User } from 'lucide-react';
 
-const TARGET_LANGUAGES = [
+const FALLBACK_LANGUAGES = [
   { code: 'hi', name: 'Hindi' },
   { code: 'en', name: 'English' },
-  { code: 'es', name: 'Spanish' },
-  { code: 'fr', name: 'French' },
-  { code: 'de', name: 'German' },
-  { code: 'ja', name: 'Japanese' },
-  { code: 'zh', name: 'Chinese' },
-  { code: 'ar', name: 'Arabic' },
-  { code: 'pt', name: 'Portuguese' },
-  { code: 'it', name: 'Italian' },
-  { code: 'ko', name: 'Korean' },
-  { code: 'ta', name: 'Tamil' },
-  { code: 'te', name: 'Telugu' },
-  { code: 'bn', name: 'Bengali' },
-  { code: 'mr', name: 'Marathi' },
-  { code: 'gu', name: 'Gujarati' },
-  { code: 'kn', name: 'Kannada' },
-  { code: 'ml', name: 'Malayalam' },
-  { code: 'pa', name: 'Punjabi' },
-  { code: 'nl', name: 'Dutch' },
-  { code: 'pl', name: 'Polish' },
-  { code: 'ru', name: 'Russian' },
-  { code: 'tr', name: 'Turkish' },
-  { code: 'sv', name: 'Swedish' },
-  { code: 'id', name: 'Indonesian' },
-  { code: 'vi', name: 'Vietnamese' },
-  { code: 'uk', name: 'Ukrainian' },
 ];
 
 function fmtTime(s) {
@@ -37,9 +13,11 @@ function fmtTime(s) {
   return m > 0 ? `${m}:${String(Math.floor(s % 60)).padStart(2, '0')}` : `${sec}s`;
 }
 
-export default function Stage2Transcript({ blocks: initialBlocks, videoFile, sourceLang, onComplete }) {
+export default function Stage2Transcript({ apiBase, blocks: initialBlocks, videoFile, sourceLang, onComplete }) {
   const [blocks, setBlocks]           = useState(() => initialBlocks.map((b, i) => ({ ...b, _key: i })));
   const [speakerNames, setSpeakerNames] = useState({});   // { S0: "Narrator", S1: "Guest" }
+  const [languages, setLanguages]     = useState(FALLBACK_LANGUAGES);
+  const [languagesLoading, setLanguagesLoading] = useState(true);
   const [targetLang, setTargetLang]   = useState('hi');
   const [editingName, setEditingName] = useState(null);   // speaker id being renamed
   const [nameInput, setNameInput]     = useState('');
@@ -50,6 +28,25 @@ export default function Stage2Transcript({ blocks: initialBlocks, videoFile, sou
   const videoUrl    = useMemo(() => videoFile ? URL.createObjectURL(videoFile) : null, [videoFile]);
 
   useEffect(() => () => { if (videoUrl) URL.revokeObjectURL(videoUrl); }, [videoUrl]);
+
+  // Fetch ElevenLabs-supported dub languages from the backend
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await axios.get(`${apiBase}/dub-direct/languages`);
+        const list = res.data?.languages || [];
+        if (!cancelled && list.length) {
+          setLanguages(list.map((l) => ({ code: l.code, name: l.name, flag: l.flag })));
+        }
+      } catch (err) {
+        console.warn('Could not load ElevenLabs language list — using fallback.', err);
+      } finally {
+        if (!cancelled) setLanguagesLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [apiBase]);
 
   // Unique speakers in order of appearance
   const uniqueSpeakers = useMemo(() => {
@@ -211,14 +208,19 @@ export default function Stage2Transcript({ blocks: initialBlocks, videoFile, sou
 
       {/* Target language picker */}
       <div className="field-group">
-        <label className="field-label">Dub into language</label>
+        <label className="field-label">
+          Dub into language {languagesLoading && <span style={{ opacity: 0.6 }}>(loading…)</span>}
+        </label>
         <select
           className="field-select"
           value={targetLang}
           onChange={(e) => setTargetLang(e.target.value)}
+          disabled={languagesLoading}
         >
-          {TARGET_LANGUAGES.map((l) => (
-            <option key={l.code} value={l.code}>{l.name}</option>
+          {languages.map((l) => (
+            <option key={l.code} value={l.code}>
+              {l.flag ? `${l.flag} ` : ''}{l.name}
+            </option>
           ))}
         </select>
       </div>
@@ -228,14 +230,25 @@ export default function Stage2Transcript({ blocks: initialBlocks, videoFile, sou
         Confirm &amp; Translate →
       </button>
 
-      {/* Floating video preview */}
+      {/* Centered video preview overlay (video element stays mounted so the ref is stable) */}
       {videoUrl && (
-        <div className={`video-preview-modal ${playingVideo ? 'visible' : ''}`}>
-          <div className="vpm-header">
-            <span>Speaker preview</span>
-            <button className="btn-icon ghost" onClick={stopPreview}><X size={15} /></button>
+        <div
+          className={`video-preview-overlay ${playingVideo ? 'visible' : 'hidden'}`}
+          onClick={stopPreview}
+        >
+          <div className="video-preview-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="vpm-header">
+              <span>Speaker preview</span>
+              <button className="btn-icon ghost" onClick={stopPreview}><X size={15} /></button>
+            </div>
+            <video
+              ref={videoRef}
+              src={videoUrl}
+              style={{ width: '100%', borderRadius: 8 }}
+              controls
+              preload="metadata"
+            />
           </div>
-          <video ref={videoRef} src={videoUrl} style={{ width: '100%', borderRadius: 8 }} controls />
         </div>
       )}
     </div>
