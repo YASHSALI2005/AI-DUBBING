@@ -81,10 +81,19 @@ class User(Base):
     __tablename__ = "users"
     id            = Column(Integer, primary_key=True, autoincrement=True)
     name          = Column(String(120), nullable=False)
-    address       = Column(String(190), nullable=False, unique=True)
+    email         = Column(String(190), nullable=False, unique=True)
     password_hash = Column(String(255), nullable=False)
     role          = Column(String(32),  nullable=False, default=ROLE_ENGINEER)
     created_at    = Column(DateTime,    nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
+_EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
+
+
+def _is_valid_email(value: str) -> bool:
+    if not value or len(value) > 190:
+        return False
+    return bool(_EMAIL_RE.match(value.strip()))
 
 
 def _hash_password(pwd: str) -> str:
@@ -100,12 +109,11 @@ def _verify_password(pwd: str, stored_hash: str) -> bool:
 
 def _create_token(user: "User") -> str:
     payload = {
-        # PyJWT validates "sub" must be a string during decode.
         "sub":  str(user.id),
-        "name": user.name,
-        "addr": user.address,
-        "role": user.role,
-        "exp":  datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRY_HOURS),
+        "name":  user.name,
+        "email": user.email,
+        "role":  user.role,
+        "exp":   datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRY_HOURS),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
@@ -158,20 +166,20 @@ def _init_db_and_seed_admin():
         print(f"[auth] WARNING: cannot connect to MySQL ({exc.orig}); login will fail until DB is reachable.")
         return
 
-    seed_addr = os.getenv("INITIAL_ADMIN_ADDRESS", "admin")
-    seed_pwd  = os.getenv("INITIAL_ADMIN_PASSWORD", "Vrfilms@2026")
-    seed_name = os.getenv("INITIAL_ADMIN_NAME", "Admin")
+    seed_email = os.getenv("INITIAL_ADMIN_EMAIL", "admin@vrfilms.local")
+    seed_pwd   = os.getenv("INITIAL_ADMIN_PASSWORD", "Vrfilms@2026")
+    seed_name  = os.getenv("INITIAL_ADMIN_NAME", "Admin")
     try:
         with SessionLocal() as db:
             if db.query(User).count() == 0:
                 db.add(User(
                     name=seed_name,
-                    address=seed_addr,
+                    email=seed_email,
                     password_hash=_hash_password(seed_pwd),
                     role=ROLE_ADMIN,
                 ))
                 db.commit()
-                print(f"[auth] Seeded initial admin: {seed_addr}")
+                print(f"[auth] Seeded initial admin: {seed_email}")
     except OperationalError as exc:
         print(f"[auth] WARNING: seed skipped ({exc.orig}).")
 
@@ -179,13 +187,13 @@ def _init_db_and_seed_admin():
 # ── Auth pydantic models ─────────────────────────────────────────────────────
 
 class LoginRequest(BaseModel):
-    address: str
+    email: str
     password: str
 
 
 class UserCreateRequest(BaseModel):
     name: str
-    address: str
+    email: str
     password: str
     role: str = ROLE_ENGINEER
 
@@ -194,7 +202,7 @@ def _user_to_dict(u: "User") -> Dict[str, Any]:
     return {
         "id":         u.id,
         "name":       u.name,
-        "address":    u.address,
+        "email":      u.email,
         "role":       u.role,
         "created_at": u.created_at.isoformat() if u.created_at else None,
     }
@@ -204,9 +212,10 @@ def _user_to_dict(u: "User") -> Dict[str, Any]:
 
 @app.post("/api/auth/login")
 def auth_login(body: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.address == body.address).first()
+    email = (body.email or "").strip().lower()
+    user = db.query(User).filter(User.email == email).first()
     if user is None or not _verify_password(body.password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Invalid username or password")
+        raise HTTPException(status_code=401, detail="Invalid email or password")
     return {"token": _create_token(user), "user": _user_to_dict(user)}
 
 
@@ -230,17 +239,19 @@ def create_user(
     role = (body.role or ROLE_ENGINEER).strip().lower()
     if role not in VALID_ROLES:
         raise HTTPException(status_code=400, detail=f"Invalid role; expected one of {sorted(VALID_ROLES)}")
-    name = body.name.strip()
-    addr = body.address.strip()
-    if not name or not addr or not body.password:
-        raise HTTPException(status_code=400, detail="name, address, and password are required")
-    user = User(name=name, address=addr, password_hash=_hash_password(body.password), role=role)
+    name  = body.name.strip()
+    email = body.email.strip().lower()
+    if not name or not email or not body.password:
+        raise HTTPException(status_code=400, detail="name, email, and password are required")
+    if not _is_valid_email(email):
+        raise HTTPException(status_code=400, detail="email must be a valid email address")
+    user = User(name=name, email=email, password_hash=_hash_password(body.password), role=role)
     db.add(user)
     try:
         db.commit()
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=409, detail="A user with that address already exists")
+        raise HTTPException(status_code=409, detail="A user with that email already exists")
     db.refresh(user)
     return _user_to_dict(user)
 
@@ -563,46 +574,66 @@ def eleven_stt_to_blocks(stt_response: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 # ── ElevenLabs Translation ────────────────────────────────────────────────────
 
-def eleven_translate_text(
+def gemini_translate_text(
     text: str,
     target_lang: str,
     source_lang: str = "auto",
 ) -> str:
-    """Translate a single text segment using ElevenLabs /v1/translate/text.
+    """Translate a single text segment using Gemini's generateContent API.
 
-    Falls back to returning the original text on failure so the pipeline
-    keeps running even when individual blocks fail.
+    Falls back to returning the original text on transport-level failure so
+    the pipeline keeps running even when individual blocks fail.
     """
-    if not ELEVEN_KEY:
-        raise HTTPException(status_code=500, detail="ELEVEN_API_KEY is not configured.")
+    if not GEMINI_API_KEY:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured.")
 
-    # Normalize to ISO 639-1 code (hi-IN -> hi)
     tgt = normalize_lang_code(target_lang)
     src = "auto" if (not source_lang or source_lang.lower() == "auto") else normalize_lang_code(source_lang)
 
-    payload = json.dumps({
-        "text": text,
-        "target_language": tgt,
-        **({"source_language": src} if src != "auto" else {}),
-    }).encode("utf-8")
+    target_label = GEMINI_LANGUAGE_NAMES.get(tgt, tgt)
+    source_label = GEMINI_LANGUAGE_NAMES.get(src, src) if src != "auto" else "the source language (auto-detect)"
 
+    prompt = (
+        f"You are a precise translator. Translate the following line from "
+        f"{source_label} into {target_label}.\n\n"
+        f"Strict rules:\n"
+        f"- Output ONLY the translation. No prefix, no quotes, no explanation, no language label.\n"
+        f"- Preserve named entities (people, places, organisations) as-is.\n"
+        f"- Preserve sentence structure and punctuation as closely as possible.\n"
+        f"- Use natural, conversational phrasing suitable for spoken dubbing.\n"
+        f"- If the input is already in {target_label}, return it unchanged.\n\n"
+        f"Input:\n{text}"
+    )
+
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.2},
+    }
+
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{GEMINI_MODEL}:generateContent?key={urllib.parse.quote(GEMINI_API_KEY)}"
+    )
     req = urllib.request.Request(
-        url=f"{ELEVEN_BASE_URL}/v1/translate/text",
+        url=url,
         method="POST",
-        data=payload,
-        headers={
-            **eleven_headers(),
-            "Content-Type": "application/json",
-        },
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
     )
     try:
         with urllib.request.urlopen(req, timeout=60) as response:
             data = json.loads(response.read().decode("utf-8"))
-            return data.get("translated_text") or data.get("text") or text
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        print(f"ElevenLabs translate failed [{exc.code}]: {detail}")
-        raise HTTPException(status_code=exc.code, detail=f"ElevenLabs translate failed: {detail}")
+        print(f"Gemini translate failed [{exc.code}]: {detail}")
+        raise HTTPException(status_code=exc.code, detail=f"Gemini translate failed: {detail}")
+
+    candidates = data.get("candidates") or []
+    if not candidates:
+        return text
+    parts = (((candidates[0] or {}).get("content") or {}).get("parts") or [])
+    merged = " ".join((p.get("text") or "").strip() for p in parts if p.get("text")).strip()
+    return merged or text
 
 
 def translate_text_with_retry(
@@ -611,17 +642,17 @@ def translate_text_with_retry(
     target_lang: str,
     speaker_gender: Optional[str] = None,  # kept for API compat, unused
 ) -> str:
-    """Retry ElevenLabs translation on transient errors."""
+    """Retry Gemini translation on transient errors."""
     for attempt in range(TRANSLATE_RETRY_ATTEMPTS):
         try:
-            return eleven_translate_text(text, target_lang, source_lang)
+            return gemini_translate_text(text, target_lang, source_lang)
         except HTTPException as exc:
             is_retryable = exc.status_code in (429, 500, 503)
             last_attempt = attempt == TRANSLATE_RETRY_ATTEMPTS - 1
             if not is_retryable or last_attempt:
                 raise
             sleep_seconds = TRANSLATE_RETRY_BASE_SECONDS * (2 ** attempt)
-            print(f"ElevenLabs translate transient error. Retry {attempt + 1}/{TRANSLATE_RETRY_ATTEMPTS} in {sleep_seconds:.1f}s.")
+            print(f"Gemini translate transient error. Retry {attempt + 1}/{TRANSLATE_RETRY_ATTEMPTS} in {sleep_seconds:.1f}s.")
             time.sleep(sleep_seconds)
         except Exception as exc:
             last_attempt = attempt == TRANSLATE_RETRY_ATTEMPTS - 1
@@ -1115,6 +1146,61 @@ def _synthesize_batched_per_speaker_sync(
     }
 
 
+# ── Gemini-supported translation languages ──────────────────────────────────
+# Curated list of languages Gemini handles reliably for translation.
+# Sourced from Google's published Gemini language support documentation.
+
+GEMINI_TRANSLATE_LANGUAGES = [
+    {"code": "ar",  "name": "Arabic",       "flag": "🇸🇦"},
+    {"code": "bn",  "name": "Bengali",      "flag": "🇧🇩"},
+    {"code": "bg",  "name": "Bulgarian",    "flag": "🇧🇬"},
+    {"code": "zh",  "name": "Chinese",      "flag": "🇨🇳"},
+    {"code": "hr",  "name": "Croatian",     "flag": "🇭🇷"},
+    {"code": "cs",  "name": "Czech",        "flag": "🇨🇿"},
+    {"code": "da",  "name": "Danish",       "flag": "🇩🇰"},
+    {"code": "nl",  "name": "Dutch",        "flag": "🇳🇱"},
+    {"code": "en",  "name": "English",      "flag": "🇬🇧"},
+    {"code": "et",  "name": "Estonian",     "flag": "🇪🇪"},
+    {"code": "fi",  "name": "Finnish",      "flag": "🇫🇮"},
+    {"code": "fr",  "name": "French",       "flag": "🇫🇷"},
+    {"code": "de",  "name": "German",       "flag": "🇩🇪"},
+    {"code": "el",  "name": "Greek",        "flag": "🇬🇷"},
+    {"code": "gu",  "name": "Gujarati",     "flag": "🇮🇳"},
+    {"code": "he",  "name": "Hebrew",       "flag": "🇮🇱"},
+    {"code": "hi",  "name": "Hindi",        "flag": "🇮🇳"},
+    {"code": "hu",  "name": "Hungarian",    "flag": "🇭🇺"},
+    {"code": "id",  "name": "Indonesian",   "flag": "🇮🇩"},
+    {"code": "it",  "name": "Italian",      "flag": "🇮🇹"},
+    {"code": "ja",  "name": "Japanese",     "flag": "🇯🇵"},
+    {"code": "kn",  "name": "Kannada",      "flag": "🇮🇳"},
+    {"code": "ko",  "name": "Korean",       "flag": "🇰🇷"},
+    {"code": "lv",  "name": "Latvian",      "flag": "🇱🇻"},
+    {"code": "lt",  "name": "Lithuanian",   "flag": "🇱🇹"},
+    {"code": "ml",  "name": "Malayalam",    "flag": "🇮🇳"},
+    {"code": "mr",  "name": "Marathi",      "flag": "🇮🇳"},
+    {"code": "no",  "name": "Norwegian",    "flag": "🇳🇴"},
+    {"code": "pl",  "name": "Polish",       "flag": "🇵🇱"},
+    {"code": "pt",  "name": "Portuguese",   "flag": "🇵🇹"},
+    {"code": "pa",  "name": "Punjabi",      "flag": "🇮🇳"},
+    {"code": "ro",  "name": "Romanian",     "flag": "🇷🇴"},
+    {"code": "ru",  "name": "Russian",      "flag": "🇷🇺"},
+    {"code": "sr",  "name": "Serbian",      "flag": "🇷🇸"},
+    {"code": "sk",  "name": "Slovak",       "flag": "🇸🇰"},
+    {"code": "sl",  "name": "Slovenian",    "flag": "🇸🇮"},
+    {"code": "es",  "name": "Spanish",      "flag": "🇪🇸"},
+    {"code": "sw",  "name": "Swahili",      "flag": "🇰🇪"},
+    {"code": "sv",  "name": "Swedish",      "flag": "🇸🇪"},
+    {"code": "ta",  "name": "Tamil",        "flag": "🇮🇳"},
+    {"code": "te",  "name": "Telugu",       "flag": "🇮🇳"},
+    {"code": "th",  "name": "Thai",         "flag": "🇹🇭"},
+    {"code": "tr",  "name": "Turkish",      "flag": "🇹🇷"},
+    {"code": "uk",  "name": "Ukrainian",    "flag": "🇺🇦"},
+    {"code": "ur",  "name": "Urdu",         "flag": "🇵🇰"},
+    {"code": "vi",  "name": "Vietnamese",   "flag": "🇻🇳"},
+]
+GEMINI_LANGUAGE_NAMES = {l["code"]: l["name"] for l in GEMINI_TRANSLATE_LANGUAGES}
+
+
 # ── ElevenLabs direct-dub language list ──────────────────────────────────────
 
 ELEVEN_DIRECT_DUB_LANGUAGES = [
@@ -1141,7 +1227,8 @@ async def get_config():
             "gemini_seconds_per_block": GEMINI_SECONDS_PER_BLOCK,
         },
         "stt_provider": "elevenlabs",
-        "translate_provider": "elevenlabs",
+        "translate_provider": "gemini",
+        "translate_model":    GEMINI_MODEL,
         "tts_provider": "gemini_batched_per_speaker",
     })
 
@@ -1260,11 +1347,21 @@ async def process_upload_fast(file: UploadFile = File(...)):
     })
 
 
-# ── Stage 3: ElevenLabs Translation ──────────────────────────────────────────
+# ── Stage 3: Gemini Translation ──────────────────────────────────────────────
+
+@app.get("/api/translate/languages")
+async def translate_languages():
+    """List of target languages supported by the Gemini-backed translator."""
+    return JSONResponse(content={
+        "languages": GEMINI_TRANSLATE_LANGUAGES,
+        "provider":  "gemini",
+        "model":     GEMINI_MODEL,
+    })
+
 
 @app.post("/api/translate")
 async def translate_text(req: TranslateRequest):
-    """Translate transcript blocks via ElevenLabs /v1/translate/text.
+    """Translate transcript blocks via Gemini generateContent.
 
     Each block is translated independently (parallelized). Returns the same
     block structure with 'transcript' replaced by the translated text.
@@ -1324,7 +1421,8 @@ async def translate_text(req: TranslateRequest):
         "translate_api_calls": translate_api_calls,
         "estimated_translate_seconds": round(estimated_translate_seconds, 1),
         "translation_processing_seconds": round(translation_processing_seconds, 2),
-        "provider": "elevenlabs",
+        "provider": "gemini",
+        "model":    GEMINI_MODEL,
     })
 
 

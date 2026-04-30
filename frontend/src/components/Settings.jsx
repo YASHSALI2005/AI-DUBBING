@@ -85,7 +85,7 @@ export default function Settings({ apiBase, token, currentUser, onBack }) {
           <div className="users-table">
             <div className="users-table-head">
               <span>Name</span>
-              <span>Address</span>
+              <span>Email</span>
               <span>Role</span>
               <span>Created</span>
             </div>
@@ -99,7 +99,7 @@ export default function Settings({ apiBase, token, currentUser, onBack }) {
                   {u.name}
                   {currentUser?.id === u.id && <span className="badge-you"> you</span>}
                 </span>
-                <span className="users-meta">{u.address}</span>
+                <span className="users-meta">{u.email}</span>
                 <span className={`role-pill role-${u.role}`}>{u.role}</span>
                 <span className="users-meta">
                   {u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}
@@ -154,7 +154,7 @@ export default function Settings({ apiBase, token, currentUser, onBack }) {
 
 function AddUserModal({ apiBase, token, onClose, onCreated }) {
   const [name, setName]         = useState('');
-  const [address, setAddress]   = useState('');
+  const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
   const [showPwd, setShowPwd]   = useState(false);
   const [role, setRole]         = useState('engineer');
@@ -168,7 +168,7 @@ function AddUserModal({ apiBase, token, onClose, onCreated }) {
     try {
       const res = await axios.post(
         `${apiBase}/users`,
-        { name, address, password, role },
+        { name, email: email.trim().toLowerCase(), password, role },
         { headers: { Authorization: `Bearer ${token}` } },
       );
       onCreated(res.data);
@@ -192,12 +192,14 @@ function AddUserModal({ apiBase, token, onClose, onCreated }) {
             <input id="u-name" value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
           </div>
           <div className="form-group">
-            <label htmlFor="u-addr">Address</label>
+            <label htmlFor="u-email">Email</label>
             <input
-              id="u-addr"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="Used for login"
+              id="u-email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="user@example.com (used for login)"
+              autoComplete="email"
               required
             />
           </div>

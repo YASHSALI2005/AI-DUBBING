@@ -31,18 +31,18 @@ export default function Stage2Transcript({ apiBase, blocks: initialBlocks, video
 
   useEffect(() => () => { if (videoUrl) URL.revokeObjectURL(videoUrl); }, [videoUrl]);
 
-  // Fetch ElevenLabs-supported dub languages from the backend
+  // Fetch Gemini-supported translation languages from the backend
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await axios.get(`${apiBase}/dub-direct/languages`);
+        const res = await axios.get(`${apiBase}/translate/languages`);
         const list = res.data?.languages || [];
         if (!cancelled && list.length) {
           setLanguages(list.map((l) => ({ code: l.code, name: l.name, flag: l.flag })));
         }
       } catch (err) {
-        console.warn('Could not load ElevenLabs language list — using fallback.', err);
+        console.warn('Could not load Gemini language list — using fallback.', err);
       } finally {
         if (!cancelled) setLanguagesLoading(false);
       }
