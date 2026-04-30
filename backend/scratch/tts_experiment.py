@@ -30,12 +30,16 @@ import shutil
 import struct
 import subprocess
 import sys
+import time
+import random
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from pydub import AudioSegment
+from pydub.silence import detect_nonsilent
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -622,8 +626,19 @@ For EACH speaker:
   1. Listen to VOICE QUALITIES: pitch, depth, timbre, roughness.
   2. Listen to EMOTIONAL DELIVERY: cold? warm? angry? tired? urgent?
   3. Consider SCENE CONTEXT from the genre you detected.
-  4. Combine these -> identify the ARCHETYPE.
-  5. Match the archetype to the voice catalog's FITS descriptions.
+  4. Infer likely GENDER from audible voice cues first, then validate with
+     linguistic/context clues in transcript (self-reference, address terms, etc.).
+     If cues conflict, trust what is clearly audible in the voice.
+  5. Combine these -> identify the ARCHETYPE.
+  6. Match the archetype to the voice catalog's FITS descriptions.
+
+GENDER CONSISTENCY (IMPORTANT):
+- The "gender" field must match the speaker's audible voice presentation.
+- Do not assign male/female from text alone when audio indicates otherwise.
+- Before finalizing, run a consistency check across transcript + segments +
+  tagged_transcript so each Speaker's gender, archetype, style_direction, and
+  recommended_voice remain aligned.
+- If uncertain, choose the best audible fit and keep it consistent everywhere.
 
 Do NOT just pick based on one-word tags. Pick based on character fit AND
 emotional valence. Do NOT use cheerful voices (e.g. Fenrir) for angry people.
@@ -697,6 +712,8 @@ SCHEMA RULES:
 - "segments" must be chronological (start-time ascending).
 - Every segment's "speaker" must match a name in "speakers".
 - Timestamps are floats in seconds from clip start.
+- Each speaker's "gender" must be consistent with audible voice cues and with
+  that speaker's archetype/style/voice choice.
 - genre/scene_description/register must reflect what you ACTUALLY heard,
   not a default assumption.
 
@@ -928,7 +945,6 @@ def detect_mime(path: Path) -> str:
 
 
 def _call_with_retry(fn, label: str, max_attempts: int = 8, base_wait: float = 5.0):
-    import time, random
     from google.genai import errors as genai_errors
     last_exc = None
     for attempt in range(1, max_attempts + 1):
@@ -1156,6 +1172,7 @@ Return a JSON object with exactly one field:
 # ── N-speaker single-TTS helpers ─────────────────────────────────────────────
 
 VROTT_MARKER = "--- VROTT ---"
+BATCH_SPLIT_PAUSE_MS = 1200
 
 
 def resolve_voice_for_speaker(spk: dict) -> str:
@@ -1217,7 +1234,8 @@ def render_speaker_plan_text(plan: dict) -> str:
 
 def build_segment_tts_input(seg: dict, speaker_profile: dict | None,
                             pace_label: str, is_dubbing: bool,
-                            genre: str = "", scene_description: str = "") -> str:
+                            genre: str = "", scene_description: str = "",
+                            source_language: str = "") -> str:
     """Build the single-speaker TTS input for one segment.
 
     Mirrors the Director's-Notes preamble used in main()'s single-speaker
@@ -1232,7 +1250,13 @@ def build_segment_tts_input(seg: dict, speaker_profile: dict | None,
             "* DO NOT add any pauses beyond what's explicitly tagged.\n"
             "* DO NOT linger on words or add dramatic breaths.\n"
             "* Keep gaps between sentences to a natural minimum.\n"
-            "* This is a dub fitting a fixed video duration — efficient delivery is key."
+            "* First understand the scene and dialogue-delivery timing before speaking.\n"
+            "* Keep the target dubbed language clear, but let delivery carry subtle source-language accent influence from the original audio.\n"
+            "* If the source language is naturally fast (for example Spanish), keep energetic turn-taking and cadence while staying intelligible in the dubbed language.\n"
+            "* After translation, align each character's speed to scene timing and emotional delivery.\n"
+            "* If a sentence is long, increase speed as needed while keeping speech clear and natural.\n"
+            "* If a sentence is very short, either add a gentle trailing '...' to extend delivery or adjust speed to fit naturally.\n"
+            "* This is a dub fitting a fixed video duration - efficient delivery is key."
         )
     else:
         pacing_note = f"### Pacing: {pace_label}, natural rhythm, no rushing."
@@ -1250,6 +1274,8 @@ def build_segment_tts_input(seg: dict, speaker_profile: dict | None,
         if scene_description:
             scene_note += f" — {scene_description}"
         scene_note += "\n"
+    if source_language:
+        scene_note += f"### Source language: {source_language}\n"
 
     if speaker_profile:
         name      = speaker_profile.get("name", seg.get("speaker", "Speaker"))
@@ -1288,12 +1314,12 @@ def build_batched_speaker_tts_input(
     is_dubbing: bool,
     genre: str = "",
     scene_description: str = "",
+    source_language: str = "",
 ) -> str:
     """Build one TTS request for many segments of the same speaker.
 
-    We keep timestamp metadata in the prompt and insert explicit long pause tags
-    between consecutive lines so the returned audio preserves gaps where other
-    speakers can later be overlaid.
+    We insert deterministic long-pause markers between lines so the returned
+    audio can be split back into per-segment chunks.
     """
     if not segments:
         return ""
@@ -1308,12 +1334,7 @@ def build_batched_speaker_tts_input(
             continue
         lines.append(f"[{start_s:.2f}-{end_s:.2f}] {tagged}")
         if i < len(ordered) - 1:
-            next_start = float(ordered[i + 1].get("start", 0.0) or 0.0)
-            gap_ms = max(0, int(round((next_start - end_s) * 1000)))
-            if gap_ms >= 350:
-                # Keep the marker textual and explicit; this prompt asks the TTS
-                # model to render it as absolute silence (no breath/noise).
-                lines.append(f"[very long pause {gap_ms}ms silence]")
+            lines.append(f"[very long pause {BATCH_SPLIT_PAUSE_MS}ms silence]")
 
     seg = {"tagged_text": "\n".join(lines), "speaker": ordered[0].get("speaker", "Speaker 1")}
     base = build_segment_tts_input(
@@ -1323,14 +1344,74 @@ def build_batched_speaker_tts_input(
         is_dubbing=is_dubbing,
         genre=genre,
         scene_description=scene_description,
+        source_language=source_language,
     )
     return (
         f"{base}\n\n"
         "### STRICT TIMELINE RULES\n"
         "- Speak only transcript lines.\n"
-        "- For every [very long pause Nms silence] marker, render true silence only.\n"
+        f"- For every [very long pause {BATCH_SPLIT_PAUSE_MS}ms silence] marker, "
+        "render true silence only (no breath/noise/voice).\n"
+        f"- Keep each pause marker close to {BATCH_SPLIT_PAUSE_MS}ms.\n"
         "- Do not speak timestamps or pause markers."
     )
+
+
+def split_batched_speaker_audio(
+    batch_wav: Path,
+    expected_count: int,
+    target_durations_s: list[float] | None = None,
+) -> list[AudioSegment] | None:
+    """Split one speaker-batch WAV into expected segment chunks.
+
+    Primary strategy: detect long silences between lines.
+    Fallback strategy: duration-guided slicing using original segment lengths.
+    """
+    if expected_count <= 0:
+        return []
+    clip = AudioSegment.from_wav(batch_wav)
+    if expected_count == 1:
+        return [clip]
+
+    # Try a few detector settings and accept the first exact match.
+    for min_silence in (700, 850, 1000):
+        silence_thresh = max(-55, int(round(clip.dBFS - 22))) if clip.dBFS != float("-inf") else -50
+        regions = detect_nonsilent(
+            clip,
+            min_silence_len=min_silence,
+            silence_thresh=silence_thresh,
+            seek_step=10,
+        )
+        if len(regions) == expected_count:
+            chunks: list[AudioSegment] = []
+            for start_ms, end_ms in regions:
+                chunks.append(clip[max(0, start_ms):min(len(clip), end_ms)])
+            return chunks
+
+    # Fallback: if silence boundaries are unreliable, split by expected segment
+    # duration proportions so we can still keep one-request-per-speaker flow.
+    if target_durations_s and len(target_durations_s) == expected_count:
+        target_ms = [max(1, int(round(d * 1000))) for d in target_durations_s]
+        total_target = sum(target_ms)
+        total_clip = len(clip)
+        if total_target > 0 and total_clip > 0:
+            scale = total_clip / total_target
+            scaled = [max(1, int(round(ms * scale))) for ms in target_ms]
+            # Ensure exact total by adjusting the last chunk.
+            diff = total_clip - sum(scaled)
+            scaled[-1] += diff
+            chunks: list[AudioSegment] = []
+            cursor = 0
+            for i, chunk_ms in enumerate(scaled):
+                if i == len(scaled) - 1:
+                    end = total_clip
+                else:
+                    end = max(cursor + 1, min(total_clip, cursor + chunk_ms))
+                chunks.append(clip[cursor:end])
+                cursor = end
+            return chunks
+
+    return None
 
 
 def translate_segments_in_place(client: genai.Client, analysis: dict,
@@ -1362,6 +1443,23 @@ def translate_segments_in_place(client: genai.Client, analysis: dict,
 
 # ── step 5 : TTS ─────────────────────────────────────────────────────────────
 
+def _extract_pcm_audio_bytes(response, label: str) -> bytes:
+    """Extract PCM audio bytes from Gemini response with defensive checks."""
+    candidates = getattr(response, "candidates", None) or []
+    for cand in candidates:
+        content = getattr(cand, "content", None)
+        parts = getattr(content, "parts", None) or []
+        for part in parts:
+            inline = getattr(part, "inline_data", None)
+            data = getattr(inline, "data", None) if inline is not None else None
+            if data:
+                return data
+    raise RuntimeError(
+        f"{label}: model returned no audio data (empty candidates/parts). "
+        "This is usually transient; retrying may succeed."
+    )
+
+
 def synthesise_tts_single(client: genai.Client, tts_input: str,
                           voice: str) -> bytes:
     """Single-speaker TTS."""
@@ -1382,9 +1480,19 @@ def synthesise_tts_single(client: genai.Client, tts_input: str,
             ),
         )
 
-    response = _call_with_retry(_call, "synthesise_tts")
-    return pcm_bytes_to_wav(response.candidates[0].content.parts[0].inline_data.data,
-                            sample_rate=24000)
+    last_exc = None
+    for attempt in range(1, 4):
+        try:
+            response = _call_with_retry(_call, "synthesise_tts")
+            pcm = _extract_pcm_audio_bytes(response, "synthesise_tts")
+            return pcm_bytes_to_wav(pcm, sample_rate=24000)
+        except RuntimeError as exc:
+            last_exc = exc
+            if attempt < 3:
+                wait_s = float(attempt * 2)
+                print(f"[tts] WARN: empty audio response (attempt {attempt}/3), retrying in {wait_s:.0f}s ...")
+                time.sleep(wait_s)
+    raise last_exc if last_exc else RuntimeError("synthesise_tts failed unexpectedly")
 
 
 def synthesise_tts_multi(client: genai.Client, tts_input: str,
@@ -1418,12 +1526,82 @@ def synthesise_tts_multi(client: genai.Client, tts_input: str,
             ),
         )
 
-    response = _call_with_retry(_call, "synthesise_tts_multi")
-    return pcm_bytes_to_wav(response.candidates[0].content.parts[0].inline_data.data,
-                            sample_rate=24000)
+    last_exc = None
+    for attempt in range(1, 4):
+        try:
+            response = _call_with_retry(_call, "synthesise_tts_multi")
+            pcm = _extract_pcm_audio_bytes(response, "synthesise_tts_multi")
+            return pcm_bytes_to_wav(pcm, sample_rate=24000)
+        except RuntimeError as exc:
+            last_exc = exc
+            if attempt < 3:
+                wait_s = float(attempt * 2)
+                print(f"[tts] WARN: empty multi-speaker audio (attempt {attempt}/3), retrying in {wait_s:.0f}s ...")
+                time.sleep(wait_s)
+    raise last_exc if last_exc else RuntimeError("synthesise_tts_multi failed unexpectedly")
 
 
-# ── single-per-segment pipeline ───────────────────────────────────────────────
+# ── batched-per-speaker parallel pipeline ─────────────────────────────────────
+
+def _synthesize_one_speaker_batch(
+    client: genai.Client,
+    speaker_name: str,
+    batch_items: list[tuple[int, dict]],
+    voice: str,
+    speaker_profile: dict | None,
+    pace_label: str,
+    is_dubbing: bool,
+    genre: str,
+    scene_description: str,
+    source_language: str,
+    seg_dir: Path,
+    apply_tighten: bool,
+) -> dict[int, Path]:
+    """Synthesize one speaker's batched segments and split into per-segment WAVs.
+
+    Returns a mapping of {segment_index -> wav_path} for all successfully
+    split chunks. Falls back gracefully — an empty dict means the caller
+    should synthesize each segment individually.
+    """
+    batched_input = build_batched_speaker_tts_input(
+        [seg for _, seg in batch_items],
+        speaker_profile,
+        pace_label,
+        is_dubbing,
+        genre=genre,
+        scene_description=scene_description,
+        source_language=source_language,
+    )
+    print(
+        f"\n[speaker-batch] {speaker_name}: synthesizing "
+        f"{len(batch_items)} segments in ONE parallel request ..."
+    )
+    batch_bytes = synthesise_tts_single(client, batched_input, voice)
+    safe_name = re.sub(r"[^a-zA-Z0-9_\-]", "_", speaker_name)
+    batch_wav = seg_dir / f"seg_batch_{safe_name}.wav"
+    batch_wav.write_bytes(batch_bytes)
+
+    target_durations_s = [
+        max(0.05, float(seg.get("end", 0.0) or 0.0) - float(seg.get("start", 0.0) or 0.0))
+        for _, seg in batch_items
+    ]
+    split_chunks = split_batched_speaker_audio(
+        batch_wav,
+        len(batch_items),
+        target_durations_s=target_durations_s,
+    )
+    if split_chunks is None:
+        print(f"[speaker-batch] split failed for {speaker_name}; will fall back to per-segment.")
+        return {}
+
+    print(f"[speaker-batch] split success for {speaker_name}: {len(split_chunks)} chunks")
+    result: dict[int, Path] = {}
+    for (idx, _), chunk in zip(batch_items, split_chunks):
+        chunk_wav = seg_dir / f"seg_{idx+1:03d}_{safe_name}_batched.wav"
+        chunk.export(chunk_wav, format="wav")
+        result[idx] = chunk_wav
+    return result
+
 
 def synthesize_segments_to_timeline(
     client: genai.Client,
@@ -1440,20 +1618,26 @@ def synthesize_segments_to_timeline(
     max_speed_match: float,
     no_exact_duration: bool,
 ) -> Path:
-    """Render N-speaker audio by per-segment single-speaker TTS + timeline overlay.
+    """Render N-speaker audio via batched-per-speaker parallel TTS + timeline overlay.
 
-    For each segment in `analysis['segments']`:
-      1. Resolve that speaker's voice (or `voice_override` if provided).
-      2. Synthesize that segment with single-speaker TTS.
-      3. Speed-match the clip to (end - start) and snap to exact duration.
-    Then place every clip on a silent timeline at its original start time.
+    Architecture (matches the Stage 4 diagram):
+      1. Group all segments by speaker.
+      2. For each speaker with >=2 segments, fire ONE batched TTS request
+         with deterministic [pause] markers between lines.
+      3. All speaker-batch requests run CONCURRENTLY via ThreadPoolExecutor.
+      4. Split each speaker's audio blob back into per-segment clips via
+         silence detection / duration-guided slicing.
+      5. Single-segment speakers (or fallback failures) are synthesized
+         per-segment — also concurrently.
+      6. Overlay every finalized clip onto a single silent timeline at its
+         original start timestamp.
+      7. Write the result to `audio_out` and return it.
     """
     segments = analysis.get("segments", [])
     if not segments:
         raise RuntimeError(
-            "single-per-segment mode requires analysis['segments'] (with "
-            "per-segment timestamps). The current cached analysis JSON has "
-            "no 'segments' field — re-run analysis without --skip-analysis."
+            "synthesize_segments_to_timeline requires analysis['segments'] "
+            "(per-segment timestamps). Re-run analysis without --skip-analysis."
         )
 
     speakers = analysis.get("speakers", [])
@@ -1462,97 +1646,88 @@ def synthesize_segments_to_timeline(
     pace_label = analysis.get("pace", "moderate")
     genre = analysis.get("genre", "")
     scene_description = analysis.get("scene_description", "")
+    source_language = analysis.get("language", "")
 
-    # Where to drop the per-segment WAVs (session-scoped to avoid clobbering).
     seg_dir = output_dir / f"{stem}_segments{lang_tag}"
     seg_dir.mkdir(exist_ok=True)
 
-    # Compute timeline length: prefer source duration; else fall back to last
-    # segment's end + a small tail.
     if target_dur and target_dur > 0:
         total_ms = int(round(target_dur * 1000))
     else:
         last_end = max(float(s.get("end", 0.0) or 0.0) for s in segments)
         total_ms = int(round(last_end * 1000)) + 500
-    print(f"[timeline] total length = {total_ms / 1000.0:.2f}s "
-          f"({len(segments)} segments)")
+    print(f"[timeline] total length = {total_ms / 1000.0:.2f}s  ({len(segments)} segments)")
 
-    # Per-segment TTS (with optional Speaker-1 batching).
-    seg_wavs: list[tuple[dict, Path]] = []
-    speaker1_name = ""
-    for seg in segments:
-        candidate = str(seg.get("speaker", "") or "")
-        if _is_speaker1_name(candidate):
-            speaker1_name = candidate
-            break
-    if not speaker1_name and segments:
-        speaker1_name = str(segments[0].get("speaker", "") or "")
-
-    speaker1_candidates: list[dict] = []
-    for seg in segments:
-        speaker_name = str(seg.get("speaker", "Speaker?") or "Speaker?")
-        if speaker_name != speaker1_name:
-            continue
-        start_s = float(seg.get("start", 0.0) or 0.0)
-        end_s = float(seg.get("end", 0.0) or 0.0)
-        seg_dur = max(0.0, end_s - start_s)
-        text = (seg.get("tagged_text") or seg.get("text", "")).strip()
-        if seg_dur >= 0.4 and text:
-            if apply_tighten:
-                speaker1_candidates.append({**seg, "tagged_text": dub_tighten_tags(text)})
-            else:
-                speaker1_candidates.append(seg)
-
-    speaker1_batched_wav: Path | None = None
-    if speaker1_candidates:
-        first_seg = min(speaker1_candidates, key=lambda s: float(s.get("start", 0.0) or 0.0))
-        last_seg = max(speaker1_candidates, key=lambda s: float(s.get("end", 0.0) or 0.0))
-        speaker1_window_s = max(
-            0.0,
-            float(last_seg.get("end", 0.0) or 0.0) - float(first_seg.get("start", 0.0) or 0.0),
-        )
+    def _resolve_voice(speaker_name: str) -> str:
         if voice_override:
-            s1_voice = voice_override
-        else:
-            s1_voice = voices_by_speaker.get(
-                speaker1_name,
-                "Charon" if (speaker_by_name.get(speaker1_name, {}).get("gender") == "male") else "Aoede",
-            )
-        s1_profile = speaker_by_name.get(speaker1_name)
-        batched_input = build_batched_speaker_tts_input(
-            speaker1_candidates,
-            s1_profile,
-            pace_label,
-            is_dubbing,
-            genre=genre,
-            scene_description=scene_description,
-        )
-        print(
-            f"\n[speaker1-batch] {speaker1_name}: synthesizing "
-            f"{len(speaker1_candidates)} segments in one request "
-            f"with pause markers."
-        )
-        speaker1_bytes = synthesise_tts_single(client, batched_input, s1_voice)
-        speaker1_batched_wav = seg_dir / f"seg_speaker1_batch_{speaker1_name}.wav"
-        speaker1_batched_wav.write_bytes(speaker1_bytes)
-        if not no_exact_duration and speaker1_window_s > 0:
-            try:
-                force_exact_duration(speaker1_batched_wav, speaker1_window_s)
-            except Exception as exc:
-                print(f"  [speaker1-batch exact-dur] skipped: {exc}")
-        seg_wavs.append((first_seg, speaker1_batched_wav))
-        print(
-            f"[speaker1-batch] timeline window = "
-            f"{float(first_seg.get('start', 0.0) or 0.0):.2f}s -> "
-            f"{float(last_seg.get('end', 0.0) or 0.0):.2f}s "
-            f"(target {speaker1_window_s:.2f}s)"
+            return voice_override
+        return voices_by_speaker.get(
+            speaker_name,
+            "Charon" if (speaker_by_name.get(speaker_name, {}).get("gender") == "male") else "Aoede",
         )
 
+    # ── Phase 1: group segments by speaker, build batch eligibility ──────────
+    segments_by_speaker: dict[str, list[tuple[int, dict]]] = {}
+    for idx, seg in enumerate(segments):
+        spk = str(seg.get("speaker", "Speaker?") or "Speaker?")
+        segments_by_speaker.setdefault(spk, []).append((idx, seg))
+
+    # Eligible batch items per speaker (seg_dur >= 0.4 and non-empty text).
+    batchable: dict[str, list[tuple[int, dict]]] = {}
+    for speaker_name, indexed_segs in segments_by_speaker.items():
+        items: list[tuple[int, dict]] = []
+        for idx, seg in indexed_segs:
+            start_s = float(seg.get("start", 0.0) or 0.0)
+            end_s   = float(seg.get("end", 0.0) or 0.0)
+            seg_dur = max(0.0, end_s - start_s)
+            text = (seg.get("tagged_text") or seg.get("text", "")).strip()
+            if seg_dur < 0.4 or not text:
+                continue
+            seg_prepared = {**seg, "tagged_text": dub_tighten_tags(text)} if apply_tighten else seg
+            items.append((idx, seg_prepared))
+        if len(items) >= 2:
+            batchable[speaker_name] = items
+
+    # ── Phase 2: fire all speaker-batch TTS calls concurrently ───────────────
+    batched_wavs_by_index: dict[int, Path] = {}
+    batch_max_workers = max(1, len(batchable))
+
+    if batchable:
+        print(f"\n[speaker-batch] launching {len(batchable)} parallel speaker requests ...")
+        with ThreadPoolExecutor(max_workers=batch_max_workers) as executor:
+            futures = {
+                executor.submit(
+                    _synthesize_one_speaker_batch,
+                    client,
+                    speaker_name,
+                    items,
+                    _resolve_voice(speaker_name),
+                    speaker_by_name.get(speaker_name),
+                    pace_label,
+                    is_dubbing,
+                    genre,
+                    scene_description,
+                    source_language,
+                    seg_dir,
+                    apply_tighten,
+                ): speaker_name
+                for speaker_name, items in batchable.items()
+            }
+            for future in as_completed(futures):
+                spk = futures[future]
+                try:
+                    result = future.result()
+                    batched_wavs_by_index.update(result)
+                    print(f"[speaker-batch] {spk}: {len(result)} chunks ready.")
+                except Exception as exc:
+                    print(f"[speaker-batch] {spk}: FAILED ({exc}). Will fall back per-segment.")
+
+    # ── Phase 3: finalize every segment (speed-match, exact-dur, collect) ────
+    seg_wavs: list[tuple[dict, Path]] = []
     last_end_ms = -1
+
     for i, seg in enumerate(segments):
         speaker_name = seg.get("speaker", "Speaker?")
-        if speaker1_batched_wav is not None and speaker_name == speaker1_name:
-            continue
         start_s = float(seg.get("start", 0.0) or 0.0)
         end_s   = float(seg.get("end", 0.0) or 0.0)
         seg_dur = max(0.0, end_s - start_s)
@@ -1560,99 +1735,112 @@ def synthesize_segments_to_timeline(
 
         if start_ms < last_end_ms:
             print(f"[timeline] WARN: segment {i+1} ({speaker_name}) starts at "
-                  f"{start_s:.2f}s but previous segment ended at "
-                  f"{last_end_ms / 1000:.2f}s — they will overlap (mixed).")
+                  f"{start_s:.2f}s but previous ended at {last_end_ms/1000:.2f}s "
+                  f"— they will overlap (mixed).")
         last_end_ms = int(round(end_s * 1000))
 
         if seg_dur < 0.4:
-            print(f"[timeline] skipping segment {i+1} ({speaker_name}) — "
-                  f"duration {seg_dur:.2f}s < 0.4s threshold.")
+            print(f"[timeline] skip seg {i+1} ({speaker_name}) — dur {seg_dur:.2f}s < 0.4s")
             continue
 
         text = seg.get("tagged_text") or seg.get("text", "")
         if not text.strip():
-            print(f"[timeline] skipping segment {i+1} ({speaker_name}) — empty text.")
+            print(f"[timeline] skip seg {i+1} ({speaker_name}) — empty text")
             continue
 
-        if apply_tighten:
-            text_for_tts = dub_tighten_tags(text)
-            seg_for_tts = {**seg, "tagged_text": text_for_tts}
-        else:
-            seg_for_tts = seg
-
-        if voice_override:
-            voice = voice_override
-        else:
-            voice = voices_by_speaker.get(
-                speaker_name,
-                "Charon" if (speaker_by_name.get(speaker_name, {}).get("gender") == "male") else "Aoede",
-            )
-
+        voice = _resolve_voice(speaker_name)
         speaker_profile = speaker_by_name.get(speaker_name)
-        tts_input = build_segment_tts_input(
-            seg_for_tts, speaker_profile, pace_label, is_dubbing,
-            genre=genre, scene_description=scene_description
-        )
 
-        print(f"\n[seg {i+1}/{len(segments)}] {speaker_name} "
-              f"@ {start_s:.2f}-{end_s:.2f}s  voice='{voice}' "
-              f"({VOICE_GENDER.get(voice, '?')})")
-        print(f"  text: {text[:80]}{'...' if len(text) > 80 else ''}")
+        if i in batched_wavs_by_index:
+            seg_wav = batched_wavs_by_index[i]
+            print(f"\n[seg {i+1}/{len(segments)}] {speaker_name} "
+                  f"@ {start_s:.2f}-{end_s:.2f}s  source='speaker-batch'")
+            print(f"  text: {text[:80]}{'...' if len(text) > 80 else ''}")
 
-        wav_bytes = synthesise_tts_single(client, tts_input, voice)
-        seg_wav = seg_dir / f"seg_{i+1:03d}_{speaker_name}.wav"
-        seg_wav.write_bytes(wav_bytes)
-
-        # If the raw generated clip is far shorter than the target window,
-        # heavy rubberband slow-down can sound robotic. In that case, do one
-        # retry with a less "compressed" prompt:
-        # - no dub-tightening tag stripping
-        # - non-dubbing director note (not "efficient delivery")
-        # This tends to produce naturally longer speech before time-stretching.
-        try:
-            raw_dur = get_audio_duration(seg_wav)
-            raw_ratio = (raw_dur / seg_dur) if seg_dur > 0 else 1.0
-        except Exception:
-            raw_dur = 0.0
-            raw_ratio = 1.0
-        if is_dubbing and seg_dur > 0 and raw_ratio < 0.55:
-            print(
-                f"  [underfill] raw clip {raw_dur:.2f}s for {seg_dur:.2f}s window "
-                f"(ratio={raw_ratio:.2f}). Retrying segment with relaxed pacing "
-                f"to avoid robotic 0.6x stretching."
-            )
-            retry_seg_for_tts = {**seg, "tagged_text": text}
-            retry_input = build_segment_tts_input(
-                retry_seg_for_tts,
-                speaker_profile,
-                pace_label="moderate-slow",
-                is_dubbing=False,
-                genre=genre,
-                scene_description=scene_description,
-            )
-            retry_bytes = synthesise_tts_single(client, retry_input, voice)
-            seg_wav.write_bytes(retry_bytes)
+            # Retry batched-underfilled segments directly
             try:
-                retry_dur = get_audio_duration(seg_wav)
-                print(
-                    f"  [underfill] retry duration: {retry_dur:.2f}s "
-                    f"(was {raw_dur:.2f}s, target {seg_dur:.2f}s)"
-                )
+                raw_dur = get_audio_duration(seg_wav)
+                raw_ratio = (raw_dur / seg_dur) if seg_dur > 0 else 1.0
             except Exception:
-                pass
+                raw_dur, raw_ratio = 0.0, 1.0
 
+            if is_dubbing and seg_dur > 0 and raw_ratio < 0.78:
+                print(f"  [batch-underfill] clip {raw_dur:.2f}s for {seg_dur:.2f}s "
+                      f"(ratio={raw_ratio:.2f}). Regenerating directly ...")
+                seg_for_tts_retry = {**seg}
+                if apply_tighten:
+                    seg_for_tts_retry["tagged_text"] = dub_tighten_tags(
+                        seg.get("tagged_text") or seg.get("text", "")
+                    )
+                retry_input = build_segment_tts_input(
+                    seg_for_tts_retry, speaker_profile, pace_label, is_dubbing,
+                    genre=genre, scene_description=scene_description,
+                    source_language=source_language,
+                )
+                safe_name = re.sub(r"[^a-zA-Z0-9_\-]", "_", speaker_name)
+                retry_bytes = synthesise_tts_single(client, retry_input, voice)
+                seg_wav = seg_dir / f"seg_{i+1:03d}_{safe_name}_regen.wav"
+                seg_wav.write_bytes(retry_bytes)
+                try:
+                    raw_dur = get_audio_duration(seg_wav)
+                    raw_ratio = (raw_dur / seg_dur) if seg_dur > 0 else 1.0
+                    print(f"  [batch-underfill] regen: {raw_dur:.2f}s (ratio={raw_ratio:.2f})")
+                except Exception:
+                    pass
+
+        else:
+            # Per-segment fallback (single-segment speakers or batch failures)
+            seg_for_tts = {**seg}
+            if apply_tighten:
+                tightened = dub_tighten_tags(seg.get("tagged_text") or seg.get("text", ""))
+                seg_for_tts["tagged_text"] = tightened
+
+            tts_input = build_segment_tts_input(
+                seg_for_tts, speaker_profile, pace_label, is_dubbing,
+                genre=genre, scene_description=scene_description,
+                source_language=source_language,
+            )
+            print(f"\n[seg {i+1}/{len(segments)}] {speaker_name} "
+                  f"@ {start_s:.2f}-{end_s:.2f}s  voice='{voice}' "
+                  f"({VOICE_GENDER.get(voice, '?')})")
+            print(f"  text: {text[:80]}{'...' if len(text) > 80 else ''}")
+
+            safe_name = re.sub(r"[^a-zA-Z0-9_\-]", "_", speaker_name)
+            wav_bytes = synthesise_tts_single(client, tts_input, voice)
+            seg_wav = seg_dir / f"seg_{i+1:03d}_{safe_name}.wav"
+            seg_wav.write_bytes(wav_bytes)
+
+            # Underfill retry — avoid robotic 0.6x rubberband stretching
+            try:
+                raw_dur = get_audio_duration(seg_wav)
+                raw_ratio = (raw_dur / seg_dur) if seg_dur > 0 else 1.0
+            except Exception:
+                raw_dur, raw_ratio = 0.0, 1.0
+
+            if is_dubbing and seg_dur > 0 and raw_ratio < 0.55:
+                print(f"  [underfill] raw {raw_dur:.2f}s for {seg_dur:.2f}s "
+                      f"(ratio={raw_ratio:.2f}). Retrying with relaxed pacing ...")
+                retry_seg = {**seg, "tagged_text": seg.get("text", text)}
+                retry_input = build_segment_tts_input(
+                    retry_seg, speaker_profile,
+                    pace_label="moderate-slow", is_dubbing=False,
+                    genre=genre, scene_description=scene_description,
+                    source_language=source_language,
+                )
+                retry_bytes = synthesise_tts_single(client, retry_input, voice)
+                seg_wav.write_bytes(retry_bytes)
+                try:
+                    retry_dur = get_audio_duration(seg_wav)
+                    print(f"  [underfill] retry: {retry_dur:.2f}s "
+                          f"(was {raw_dur:.2f}s, target {seg_dur:.2f}s)")
+                except Exception:
+                    pass
+
+        # Speed-match and exact-duration (applied regardless of batch vs direct)
         if not no_speed_match and seg_dur > 0:
             try:
-                if is_dubbing:
-                    # Always use the configured dubbing tempo limits regardless
-                    # of what --max-speed-match was set to. The CLI flag is an
-                    # upper bound for non-dubbing use; dubbing has its own limits
-                    # because Hindi/Hinglish TTS already runs 1.4-1.6x long.
-                    cap = DUBBING_MAX_TEMPO
-                    floor_speed = DUBBING_MIN_TEMPO
-                else:
-                    cap = max_speed_match
-                    floor_speed = 0.85
+                cap = DUBBING_MAX_TEMPO if is_dubbing else max_speed_match
+                floor_speed = DUBBING_MIN_TEMPO if is_dubbing else 0.85
                 speed_match_wav(seg_wav, seg_dur,
                                 max_speed=cap, min_speed=floor_speed,
                                 segment_dur_s=seg_dur)
@@ -1673,18 +1861,20 @@ def synthesize_segments_to_timeline(
             "Check the analysis output."
         )
 
-    # Build silent timeline and overlay each clip at its start time.
+    # ── Phase 4: mix all clips onto a silent timeline ─────────────────────────
     print(f"\n[timeline] overlaying {len(seg_wavs)} clips onto "
-          f"{total_ms / 1000:.2f}s of silence ...")
+          f"{total_ms / 1000:.2f}s silence ...")
     mixed = AudioSegment.silent(duration=total_ms)
     for seg, seg_wav in seg_wavs:
         clip = AudioSegment.from_wav(seg_wav)
         position = int(round(float(seg.get("start", 0.0) or 0.0) * 1000))
         mixed = mixed.overlay(clip, position=position)
-    seg_final_out = seg_dir / f"{stem}_final_timeline{lang_tag}.wav"
-    mixed.export(seg_final_out, format="wav")
-    print(f"[saved] timeline mix -> {seg_final_out}")
-    return seg_final_out
+
+    # Write to the caller-specified audio_out path (main.py expects final.wav there)
+    audio_out.parent.mkdir(parents=True, exist_ok=True)
+    mixed.export(str(audio_out), format="wav")
+    print(f"[saved] timeline mix -> {audio_out}")
+    return audio_out
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
@@ -1951,6 +2141,7 @@ def main() -> None:
             pace_tag = "[slow] "
 
         pace_label = analysis.get("pace", "moderate")
+        source_language = analysis.get("language", "")
 
         # Build a scene context line for the TTS director note
         scene_note = ""
@@ -1959,6 +2150,8 @@ def main() -> None:
             if scene_description:
                 scene_note += f" — {scene_description}"
             scene_note += "\n"
+        if source_language:
+            scene_note += f"### Source language: {source_language}\n"
 
         def _profile_block(s: dict) -> str:
             name      = s.get("name", "Speaker")
@@ -1977,9 +2170,12 @@ def main() -> None:
                 "* DO NOT add any pauses beyond what's explicitly tagged.\n"
                 "* DO NOT linger on words or add dramatic breaths.\n"
                 "* Keep gaps between sentences to a natural minimum.\n"
-                "* After translation, check each character's voice delivery against the dialogue and set speaking speed accordingly.\n"
-                "* Match speed to dialogue length: longer lines can be slightly faster, shorter lines should be concise but natural.\n"
-                "* If any dialogue is very short, handle it specially by adjusting speed (faster or slower) so it sounds natural and in-character.\n"
+                "* First understand the scene and dialogue-delivery timing before speaking.\n"
+                "* Keep the target dubbed language clear, but let delivery carry subtle source-language accent influence from the original audio.\n"
+                "* If the source language is naturally fast (for example Spanish), keep energetic turn-taking and cadence while staying intelligible in the dubbed language.\n"
+                "* After translation, align each character's speed to scene timing and emotional delivery.\n"
+                "* If a sentence is long, increase speed as needed while keeping speech clear and natural.\n"
+                "* If a sentence is very short, either add a gentle trailing '...' to extend delivery or adjust speed to fit naturally.\n"
                 "* This is a dub fitting a fixed video duration - efficient delivery is key."
             )
         else:

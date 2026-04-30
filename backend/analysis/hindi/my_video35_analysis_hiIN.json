@@ -1,0 +1,101 @@
+{
+  "genre": "emotional_drama",
+  "scene_description": "A couple calmly explains their decision to separate to a concerned friend.",
+  "register": "mixed",
+  "transcript": "¿Nos separáis de verdad? Pues sí, nos separamos. Nos separamos. Ya está. Llevábamos tiempo pensándolo y este verano cuando nos fuimos de vacaciones sin los niños, pues ahí lo decidimos. Y nos dimos cuenta en ese tiempo que, bueno que había algo que se había roto entre los dos y ya está. Y yo que sé, que ya al final tenemos una relación súper aburrida. Sí, es que a ver, nos queremos mucho y pero somos amigos, pero ya no hay chispa, ¿no? No.",
+  "num_speakers": 3,
+  "speakers": [
+    {
+      "name": "Speaker1",
+      "gender": "female",
+      "character_archetype": "Concerned Friend",
+      "voice_reasoning": "Her voice is gentle and conveys worried disbelief, fitting for a friend hearing difficult news.",
+      "recommended_voice": "Vindemiatrix",
+      "style_direction": "A friend hearing about her friends' separation for the first time. Her tone is one of quiet concern and surprise."
+    },
+    {
+      "name": "Speaker2",
+      "gender": "male",
+      "character_archetype": "Resigned Partner (Male)",
+      "voice_reasoning": "His conversational, mid-range voice matches the 'everyday guy' archetype trying to explain a sad, difficult situation matter-of-factly.",
+      "recommended_voice": "Zubenelgenubi",
+      "style_direction": "A man who has come to a painful but firm conclusion about his relationship. He explains the decision with a weary, resigned, but calm tone."
+    },
+    {
+      "name": "Speaker3",
+      "gender": "female",
+      "character_archetype": "Resigned Partner (Female)",
+      "voice_reasoning": "Her natural, easy-going voice quality fits the conversational but sad delivery as she corroborates the story and confesses her own feelings of boredom.",
+      "recommended_voice": "Callirrhoe",
+      "style_direction": "A woman jointly explaining the end of her relationship. Her tone is sad and resigned, adding her own perspective on why it's over."
+    }
+  ],
+  "segments": [
+    {
+      "speaker": "Speaker1",
+      "start": 1.14,
+      "end": 2.01,
+      "text": "¿Nos separáis de verdad?",
+      "tagged_text": "[with quiet concern] Humein alag?",
+      "original_tagged_text": "[with quiet concern] ¿Nos separáis de verdad?"
+    },
+    {
+      "speaker": "Speaker2",
+      "start": 2.2,
+      "end": 4.96,
+      "text": "Pues sí, nos separamos. Nos separamos. Ya está.",
+      "tagged_text": "[resignedly] Haan. [resignedly] Alag ho gaye. [with finality] Bas.",
+      "original_tagged_text": "[resignedly] Pues sí, nos separamos. [resignedly] Nos separamos. [with finality] Ya está."
+    },
+    {
+      "speaker": "Speaker2",
+      "start": 6.09,
+      "end": 11.37,
+      "text": "Llevábamos tiempo pensándolo y este verano cuando nos fuimos de vacaciones sin los niños, pues ahí lo decidimos.",
+      "tagged_text": "[like someone explaining a difficult but final decision] Kaafi time se soch rahe the. Kids ke bina vacation pe decide kiya.",
+      "original_tagged_text": "[like someone explaining a difficult but final decision] Llevábamos tiempo pensándolo y este verano cuando nos fuimos de vacaciones sin los niños, pues ahí lo decidimos."
+    },
+    {
+      "speaker": "Speaker3",
+      "start": 11.7,
+      "end": 15.93,
+      "text": "Y nos dimos cuenta en ese tiempo que, bueno que había algo que se había roto entre los dos y ya está.",
+      "tagged_text": "[calmly, adding to the explanation] Aur tab humein realize hua, ki hamare beech kuch toot gaya tha.",
+      "original_tagged_text": "[calmly, adding to the explanation] Y nos dimos cuenta en ese tiempo que, bueno que había algo que se había roto entre los dos y ya está."
+    },
+    {
+      "speaker": "Speaker3",
+      "start": 16.48,
+      "end": 19.85,
+      "text": "Y yo que sé, que ya al final tenemos una relación súper aburrida.",
+      "tagged_text": "[as if confessing a sad truth] Pata nahi, hamara relationship ab super boring hai.",
+      "original_tagged_text": "[as if confessing a sad truth] Y yo que sé, que ya al final tenemos una relación súper aburrida."
+    },
+    {
+      "speaker": "Speaker2",
+      "start": 19.95,
+      "end": 26.87,
+      "text": "Sí, es que a ver, nos queremos mucho y pero somos amigos, pero ya no hay chispa, ¿no?",
+      "tagged_text": "[wearily, trying to rationalize] यार, प्यार तो है, पर अब दोस्त हैं. Spark नहीं है.",
+      "original_tagged_text": "[wearily, trying to rationalize] Sí, es que a ver, nos queremos mucho y pero somos amigos, pero ya no hay chispa, ¿no?"
+    },
+    {
+      "speaker": "Speaker3",
+      "start": 27.35,
+      "end": 27.76,
+      "text": "No.",
+      "tagged_text": "[softly] Nahin.",
+      "original_tagged_text": "[softly] No."
+    }
+  ],
+  "tagged_transcript": "Speaker1: [with quiet concern] ¿Nos separáis de verdad?\nSpeaker2: [resignedly] Pues sí, nos separamos. [resignedly] Nos separamos. [with finality] Ya está.\nSpeaker2: [like someone explaining a difficult but final decision] Llevábamos tiempo pensándolo y este verano cuando nos fuimos de vacaciones sin los niños, pues ahí lo decidimos.\nSpeaker3: [calmly, adding to the explanation] Y nos dimos cuenta en ese tiempo que, bueno que había algo que se había roto entre los dos y ya está.\nSpeaker3: [as if confessing a sad truth] Y yo que sé, que ya al final tenemos una relación súper aburrida.\nSpeaker2: [wearily, trying to rationalize] Sí, es que a ver, nos queremos mucho y pero somos amigos, pero ya no hay chispa, ¿no?\nSpeaker3: [softly] No.",
+  "language": "es-ES",
+  "pace": "moderate",
+  "dubbed_language": "hi-IN",
+  "speaker_plan": {
+    "Speaker1": "[1.14-2.01] [with quiet concern] Humein alag?",
+    "Speaker2": "[2.20-4.96] [resignedly] Haan. [resignedly] Alag ho gaye. [with finality] Bas.\n--- VROTT ---\n[6.09-11.37] [like someone explaining a difficult but final decision] Kaafi time se soch rahe the. Kids ke bina vacation pe decide kiya.\n--- VROTT ---\n[19.95-26.87] [wearily, trying to rationalize] यार, प्यार तो है, पर अब दोस्त हैं. Spark नहीं है.",
+    "Speaker3": "[11.70-15.93] [calmly, adding to the explanation] Aur tab humein realize hua, ki hamare beech kuch toot gaya tha.\n--- VROTT ---\n[16.48-19.85] [as if confessing a sad truth] Pata nahi, hamara relationship ab super boring hai.\n--- VROTT ---\n[27.35-27.76] [softly] Nahin."
+  },
+  "multi_speaker_mode_used": "single-per-segment"
+}

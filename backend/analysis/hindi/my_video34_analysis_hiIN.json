@@ -1,0 +1,126 @@
+{
+  "genre": "comedy_banter",
+  "scene_description": "A group of young friends or siblings are playing a card game, teasing each other about their future aspirations and personal quirks.",
+  "register": "casual",
+  "transcript": "A la hermanita, paso. Yo también paso, si es que me vais a acabar desplumando. Y yo no tengo los trabajos asegurados que tenéis vosotros, tíos. Asegurado de qué, perdona, yo no me voy a tirar toda la vida en esa consulta aburrida, eh? Yo me voy a ir a África a trabajar con Médicos Sin Fronteras. ¿Tú? Que te pones histérica cada vez que se te encrespa el pelo en la playa. Porque lo tengo muy rebelde el pelo, ¿vale? Por eso me lo ato así. Lo sabes de toda la vida. ¿Qué te pasa hoy? Bueno, a ver, ¿nos centramos en el juego o seguimos hablando de África? Otro, ¿no podemos hablar de lo que a mí me dé la gana o qué? Tú no tienes proyectos de futuro? Yo voy a construir edificios y voy a diseñar cosas que dejen una huella para la humanidad y sobre todo te voy a ganar esta partida, Florineta. Con qué victorín, te has quedado sin dinero para apostar, te has quedado sin nada.",
+  "num_speakers": 4,
+  "speakers": [
+    {
+      "name": "Speaker1",
+      "gender": "female",
+      "character_archetype": "Ambitious but defensive young woman",
+      "voice_reasoning": "Her voice is youthful and energetic, fitting a young adult who is passionate about her plans but easily annoyed by teasing, matching Leda's characteristics.",
+      "recommended_voice": "Leda",
+      "style_direction": "A young woman, likely a student or recent grad, bantering with friends/family. She's passionate about her future plans but gets defensive and a bit petulant when teased about her quirks."
+    },
+    {
+      "name": "Speaker2",
+      "gender": "male",
+      "character_archetype": "Ambitious young man with a playful side",
+      "voice_reasoning": "His voice has a casual, conversational quality fitting for friendly banter, but he can also deliver his lines with confidence, which aligns with the Zubenelgenubi archetype.",
+      "recommended_voice": "Zubenelgenubi",
+      "style_direction": "A young man who complains playfully about losing a game, but then confidently and grandly declares his future ambitions to his friends."
+    },
+    {
+      "name": "Speaker3",
+      "gender": "female",
+      "character_archetype": "Teasing friend/sibling",
+      "voice_reasoning": "Her single line is delivered with a light, breezy, and teasing tone, making the natural and easy-going quality of Callirrhoe a perfect fit.",
+      "recommended_voice": "Callirrhoe",
+      "style_direction": "A friend or sibling who knows the main speaker well and enjoys playfully teasing her about her little vanities."
+    },
+    {
+      "name": "Speaker4",
+      "gender": "male",
+      "character_archetype": "Pragmatic friend trying to mediate",
+      "voice_reasoning": "His tone is laid-back and aimed at de-escalation, trying to get the group back on track, which suits the easy-going nature of Umbriel.",
+      "recommended_voice": "Umbriel",
+      "style_direction": "The practical friend in the group who tries to keep everyone focused on the task at hand (the game) amidst the banter and side conversations."
+    }
+  ],
+  "segments": [
+    {
+      "speaker": "Speaker1",
+      "start": 0.16,
+      "end": 1.25,
+      "text": "A la hermanita, paso.",
+      "tagged_text": "[casually] Usko.",
+      "original_tagged_text": "[casually] Usko pass."
+    },
+    {
+      "speaker": "Speaker2",
+      "start": 1.7,
+      "end": 6.6,
+      "text": "Yo también paso, si es que me vais a acabar desplumando. Y yo no tengo los trabajos asegurados que tenéis vosotros, tíos.",
+      "tagged_text": "[wearily, like a friend complaining about losing a game] Main out, ab looto. [casually] Meri job tumhari jaisi secure nahi.",
+      "original_tagged_text": "[wearily, like a friend complaining about losing a game] Main out, tum log toh loot hi loge. [casually] Meri job tumhari tarah secure nahi hai."
+    },
+    {
+      "speaker": "Speaker1",
+      "start": 6.81,
+      "end": 12.92,
+      "text": "Asegurado de qué, perdona, yo no me voy a tirar toda la vida en esa consulta aburrida, eh? Yo me voy a ir a África a trabajar con Médicos Sin Fronteras.",
+      "tagged_text": "[indignantly] Secure future? Yahaan nahi sadna. [confidently] Africa jaaungi, Doctors Without Borders ke saath.",
+      "original_tagged_text": "[indignantly] Secure future? Main poori zindagi us boring clinic mein nahi nikaalungi. [confidently] Main Africa jaaungi, Doctors Without Borders ke saath."
+    },
+    {
+      "speaker": "Speaker3",
+      "start": 13.1,
+      "end": 17.13,
+      "text": "¿Tú? Que te pones histérica cada vez que se te encrespa el pelo en la playa.",
+      "tagged_text": "[chuckles] [playfully teasing, with a grin in the voice] Tu aur frizzy hair? Paagal!",
+      "original_tagged_text": "[chuckles] [playfully teasing, with a grin in the voice] Tu? Beach pe baal frizzy hote hi paagal!"
+    },
+    {
+      "speaker": "Speaker1",
+      "start": 17.36,
+      "end": 22.09,
+      "text": "Porque lo tengo muy rebelde el pelo, ¿vale? Por eso me lo ato así. Lo sabes de toda la vida. ¿Qué te pasa hoy?",
+      "tagged_text": "[defensively] [fast] Baal kharab the, baandh liye. [annoyed] Pata hai na? [irritably] Ab kya?",
+      "original_tagged_text": "[defensively] [fast] Baal bahut kharab hain, isliye baandh liye. [annoyed] Yeh toh tujhe pata hai. [irritably] Aaj kya hua?"
+    },
+    {
+      "speaker": "Speaker4",
+      "start": 22.37,
+      "end": 25.99,
+      "text": "Bueno, a ver, ¿nos centramos en el juego o seguimos hablando de África?",
+      "tagged_text": "[like a friend trying to de-escalate a petty argument] Game khelein ya Africa?",
+      "original_tagged_text": "[like a friend trying to de-escalate a petty argument] Game khelein ya Africa pe baat karni hai?"
+    },
+    {
+      "speaker": "Speaker1",
+      "start": 26.31,
+      "end": 29.62,
+      "text": "Otro, ¿no podemos hablar de lo que a mí me dé la gana o qué? Tú no tienes proyectos de futuro?",
+      "tagged_text": "[annoyed, dismissively] Meri marzi se nahi? [challengingly] Tere future plans nahi?",
+      "original_tagged_text": "[annoyed, dismissively] Meri marzi se baat nahi kar sakte? [challengingly] Tere future plans nahi hain?"
+    },
+    {
+      "speaker": "Speaker2",
+      "start": 29.98,
+      "end": 35.59,
+      "text": "Yo voy a construir edificios y voy a diseñar cosas que dejen una huella para la humanidad y sobre todo te voy a ganar esta partida, Florineta.",
+      "tagged_text": "[confidently] Main history design karunga, [playfully] abhi tujhe haraunga, Florineta.",
+      "original_tagged_text": "[confidently] Main history banane wali buildings design karunga, [playfully] aur abhi, tujhe is game mein haraunga, Florineta."
+    },
+    {
+      "speaker": "Speaker1",
+      "start": 35.89,
+      "end": 39.22,
+      "text": "Con qué victorín, te has quedado sin dinero para apostar, te has quedado sin nada.",
+      "tagged_text": "[scoffs] [sarcastically] Victor, betting ke paise khatam.",
+      "original_tagged_text": "[scoffs] [sarcastically] Toh Victor, betting ke paise khatam, ab kuch nahi bacha."
+    }
+  ],
+  "tagged_transcript": "Speaker1: [casually] A la hermanita, paso.\nSpeaker2: [wearily, like a friend complaining about losing a game] Yo también paso, si es que me vais a acabar desplumando. [casually] Y yo no tengo los trabajos asegurados que tenéis vosotros, tíos.\nSpeaker1: [indignantly] Asegurado de qué, perdona, yo no me voy a tirar toda la vida en esa consulta aburrida, eh? [confidently] Yo me voy a ir a África a trabajar con Médicos Sin Fronteras.\nSpeaker3: [chuckles] [playfully teasing, with a grin in the voice] ¿Tú? Que te pones histérica cada vez que se te encrespa el pelo en la playa.\nSpeaker1: [defensively] [fast] Porque lo tengo muy rebelde el pelo, ¿vale? [annoyed] Por eso me lo ato así. [annoyed] Lo sabes de toda la vida. [irritably] ¿Qué te pasa hoy?\nSpeaker4: [like a friend trying to de-escalate a petty argument] Bueno, a ver, ¿nos centramos en el juego o seguimos hablando de África?\nSpeaker1: [annoyed, dismissively] Otro, ¿no podemos hablar de lo que a mí me dé la gana o qué? [challengingly] ¿Tú no tienes proyectos de futuro?\nSpeaker2: [confidently] Yo voy a construir edificios y voy a diseñar cosas que dejen una huella para la humanidad [playfully] y sobre todo te voy a ganar esta partida, Florineta.\nSpeaker1: [scoffs] [sarcastically] Con qué victorín, te has quedado sin dinero para apostar, te has quedado sin nada.",
+  "language": "es-ES",
+  "pace": "moderate-fast",
+  "dubbed_language": "hi-IN",
+  "speaker_plan": {
+    "Speaker1": "[0.16-1.25] [casually] Usko.\n--- VROTT ---\n[6.81-12.92] [indignantly] Secure future? Yahaan nahi sadna. [confidently] Africa jaaungi, Doctors Without Borders ke saath.\n--- VROTT ---\n[17.36-22.09] [defensively] [fast] Baal kharab the, baandh liye. [annoyed] Pata hai na? [irritably] Ab kya?\n--- VROTT ---\n[26.31-29.62] [annoyed, dismissively] Meri marzi se nahi? [challengingly] Tere future plans nahi?\n--- VROTT ---\n[35.89-39.22] [scoffs] [sarcastically] Victor, betting ke paise khatam.",
+    "Speaker2": "[1.70-6.60] [wearily, like a friend complaining about losing a game] Main out, ab looto. [casually] Meri job tumhari jaisi secure nahi.\n--- VROTT ---\n[29.98-35.59] [confidently] Main history design karunga, [playfully] abhi tujhe haraunga, Florineta.",
+    "Speaker3": "[13.10-17.13] [chuckles] [playfully teasing, with a grin in the voice] Tu aur frizzy hair? Paagal!",
+    "Speaker4": "[22.37-25.99] [like a friend trying to de-escalate a petty argument] Game khelein ya Africa?"
+  },
+  "multi_speaker_mode_used": "single-per-segment"
+}

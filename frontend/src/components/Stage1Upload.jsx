@@ -1,95 +1,76 @@
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
-import { Upload, FileAudio, Loader2 } from 'lucide-react';
-import {
-  estimateSttSecondsFromDuration,
-  formatEtaRange,
-  formatElapsedClock,
-} from '../timeEstimates';
+import { Upload, FileAudio, Loader2, AlertCircle } from 'lucide-react';
 
-export default function Stage1Upload({ apiBase, onComplete, onFastUploadComplete }) {
-  const [file, setFile] = useState(null);
-  const [sourceLang, setSourceLang] = useState('hi-IN');
-  const [skipStt, setSkipStt] = useState(false);
-  const [targetLang, setTargetLang] = useState('hi-IN');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [timingCfg, setTimingCfg] = useState(null);
-  const [videoDurationSec, setVideoDurationSec] = useState(null);
-  const [elapsedSec, setElapsedSec] = useState(0);
-  const fileInputRef = useRef(null);
-  const uploadStartRef = useRef(null);
-  const elapsedTimerRef = useRef(null);
+const SUPPORTED_LANGS = [
+  { code: '',      name: 'Auto-detect' },
+  { code: 'en',   name: 'English' },
+  { code: 'hi',   name: 'Hindi' },
+  { code: 'es',   name: 'Spanish' },
+  { code: 'fr',   name: 'French' },
+  { code: 'de',   name: 'German' },
+  { code: 'ja',   name: 'Japanese' },
+  { code: 'zh',   name: 'Chinese' },
+  { code: 'ar',   name: 'Arabic' },
+  { code: 'pt',   name: 'Portuguese' },
+  { code: 'it',   name: 'Italian' },
+  { code: 'ko',   name: 'Korean' },
+  { code: 'ta',   name: 'Tamil' },
+  { code: 'te',   name: 'Telugu' },
+  { code: 'bn',   name: 'Bengali' },
+  { code: 'mr',   name: 'Marathi' },
+  { code: 'gu',   name: 'Gujarati' },
+  { code: 'kn',   name: 'Kannada' },
+  { code: 'ml',   name: 'Malayalam' },
+  { code: 'pa',   name: 'Punjabi' },
+];
 
+const ACCEPTED_EXTS = '.mp4,.mov,.avi,.mp3,.wav,.m4a,.webm';
+
+export default function Stage1Upload({ apiBase, onComplete }) {
+  const [file, setFile]             = useState(null);
+  const [sourceLang, setSourceLang] = useState('');
+  const [loading, setLoading]       = useState(false);
+  const [error, setError]           = useState('');
+  const [elapsed, setElapsed]       = useState(0);
+  const [videoDuration, setVideoDuration] = useState(null);
+
+  const fileInputRef  = useRef(null);
+  const timerRef      = useRef(null);
+  const startTimeRef  = useRef(null);
+
+  // Measure video duration for ETA hint
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await axios.get(`${apiBase}/config`);
-        if (!cancelled && res.data?.timing) {
-          setTimingCfg(res.data.timing);
-        }
-      } catch {
-        /* Estimators fall back to defaults when config is unavailable. */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [apiBase]);
-
-  useEffect(() => {
-    if (!file) {
-      setVideoDurationSec(null);
-      return undefined;
-    }
-    let cancelled = false;
+    if (!file) { setVideoDuration(null); return; }
     const url = URL.createObjectURL(file);
-    const v = document.createElement('video');
-    v.preload = 'metadata';
-    v.onloadedmetadata = () => {
-      if (cancelled) return;
-      const d = v.duration;
-      setVideoDurationSec(Number.isFinite(d) && d > 0 ? d : null);
+    const el  = document.createElement('video');
+    el.preload = 'metadata';
+    el.onloadedmetadata = () => {
+      setVideoDuration(Number.isFinite(el.duration) && el.duration > 0 ? el.duration : null);
     };
-    v.onerror = () => {
-      if (!cancelled) setVideoDurationSec(null);
-    };
-    v.src = url;
-    return () => {
-      cancelled = true;
-      v.removeAttribute('src');
-      URL.revokeObjectURL(url);
-    };
+    el.onerror = () => setVideoDuration(null);
+    el.src = url;
+    return () => { el.removeAttribute('src'); URL.revokeObjectURL(url); };
   }, [file]);
 
+  // Elapsed timer while loading
   useEffect(() => {
-    if (!loading) {
-      if (elapsedTimerRef.current) {
-        clearInterval(elapsedTimerRef.current);
-        elapsedTimerRef.current = null;
-      }
-      setElapsedSec(0);
-      return undefined;
+    if (loading) {
+      startTimeRef.current = Date.now();
+      timerRef.current = setInterval(() => {
+        setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
+      }, 500);
+    } else {
+      clearInterval(timerRef.current);
+      setElapsed(0);
     }
-    uploadStartRef.current = Date.now();
-    elapsedTimerRef.current = setInterval(() => {
-      if (uploadStartRef.current) {
-        setElapsedSec((Date.now() - uploadStartRef.current) / 1000);
-      }
-    }, 500);
-    return () => {
-      if (elapsedTimerRef.current) {
-        clearInterval(elapsedTimerRef.current);
-        elapsedTimerRef.current = null;
-      }
-    };
+    return () => clearInterval(timerRef.current);
   }, [loading]);
 
-  const handleFileChange = (e) => {
-    if (e.target.files && e.target.files[0]) {
-        setFile(e.target.files[0]);
-    }
+  const handleDrop = (e) => {
+    e.preventDefault();
+    const dropped = e.dataTransfer.files?.[0];
+    if (dropped) setFile(dropped);
   };
 
   const handleUpload = async () => {
@@ -97,252 +78,116 @@ export default function Stage1Upload({ apiBase, onComplete, onFastUploadComplete
     setLoading(true);
     setError('');
 
-    // Fast path: skip Sarvam STT and jump directly to Stage 3 in Gemini
-    // per-segment dub mode. Gemini will transcribe + diarize at synth time.
-    if (skipStt) {
-      const formData = new FormData();
-      formData.append('file', file);
-      try {
-        const res = await axios.post(`${apiBase}/upload-fast`, formData, { timeout: 0 });
-        if (typeof onFastUploadComplete === 'function') {
-          onFastUploadComplete(file, res.data.session_id, targetLang);
-        } else {
-          // Defensive fallback if parent didn't wire the new callback.
-          onComplete([], file, res.data.session_id, sourceLang === 'auto' ? 'hi-IN' : sourceLang);
-        }
-      } catch (err) {
-        console.error(err);
-        const detail = err?.response?.data?.detail || err.message || 'Unknown error';
-        setError(`Fast upload failed: ${detail}`);
-      } finally {
-        setLoading(false);
-      }
-      return;
-    }
-
     const formData = new FormData();
     formData.append('file', file);
-    if (sourceLang !== 'auto') {
-      formData.append('language_code', sourceLang);
-    }
+    if (sourceLang) formData.append('language_code', sourceLang);
 
     try {
-      const res = await axios.post(`${apiBase}/upload`, formData, {
-        // STT can run a long time; 0 = no axios-side cap (browser/OS may still limit).
-        timeout: 0,
-      });
-      // Ensure we have a uniform block structure
-      const rawData = res.data.data;
-      const detectedLang = rawData?.language_code || rawData?.language || rawData?.detected_language_code || null;
-      let blocks = [];
-      // Use the 'diarized_transcript.entries' array if provided by Sarvam STT
-      const entries = rawData?.diarized_transcript?.entries;
-      if (entries && entries.length > 0) {
-          blocks = entries.map((sent, i) => ({
-              id: `block-${i}`,
-              speakers: [`S${sent.speaker_id || '?'}`],
-              transcript: sent.transcript,
-              timestamps: [sent.start_time_seconds, sent.end_time_seconds]
-          }));
-      } else if (rawData && rawData.transcript) {
-          // Fallback if there are no sentences but we have a master transcript
-          blocks = [{
-              id: 'block-1',
-              speakers: ['S1'],
-              transcript: rawData.transcript,
-              timestamps: [0, 5000]
-          }];
-      } else {
-         // Create mock data for demo since Sarvam STT can take long
-          blocks = [
-              { id: 1, speakers: ['S1'], transcript: "Hello, welcome to the pipeline.", timestamps: [0, 2000] },
-              { id: 2, speakers: ['S2'], transcript: "It is great to be here.", timestamps: [2500, 4500] }
-          ];
-      }
-      const resolvedSourceLang = sourceLang === 'auto' ? (detectedLang || 'hi-IN') : sourceLang;
-      onComplete(blocks, file, res.data.session_id, resolvedSourceLang);
+      const res = await axios.post(`${apiBase}/upload`, formData, { timeout: 0 });
+      const { blocks, session_id, detected_language, audio_duration_seconds } = res.data;
+      onComplete(blocks, file, session_id, detected_language || sourceLang || 'en', audio_duration_seconds);
     } catch (err) {
       console.error(err);
-      const code = err?.code;
-      const noResponse = !err?.response;
-      let detail = err?.response?.data?.detail || err.message || 'Unknown error';
-      if (noResponse && (code === 'ERR_NETWORK' || err.message === 'Network Error')) {
-        detail =
-          'Connection was lost (often net::ERR_CONNECTION_RESET). The server may have stopped mid-request — ' +
-          'check the uvicorn terminal for a crash or traceback. Long STT jobs can also hit OS or proxy limits; ' +
-          'try a shorter clip or restart the backend.';
-      }
-      setError(`Upload/STT failed: ${detail}`);
-      // Do NOT pass mock data - show the real error to the user
+      const detail = err?.response?.data?.detail || err.message || 'Unknown error';
+      setError(`Upload / STT failed: ${detail}`);
     } finally {
       setLoading(false);
     }
   };
 
-  const sttEtaSeconds = estimateSttSecondsFromDuration(videoDurationSec, timingCfg);
+  const fmtDur = (s) => s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
 
   return (
-    <div className="text-center">
-      <h2 style={{fontSize: '1.5rem', marginBottom: '1rem'}}>Stage 1: Upload Video</h2>
-      <p style={{color: 'var(--text-muted)', marginBottom: '2rem'}}>
-        Upload an MP4 file. The pipeline will prepare the audio for translation and dubbing.
-      </p>
+    <div className="stage-container">
+      <div className="stage-header">
+        <span className="stage-badge">1</span>
+        <div>
+          <h2 className="stage-title">Upload</h2>
+          <p className="stage-subtitle">Video or audio file —  will transcribe &amp; diarize speakers</p>
+        </div>
+      </div>
 
-      <div 
-        className="upload-zone"
-        onClick={() => fileInputRef.current?.click()}
+      {/* Drop zone */}
+      <div
+        className={`upload-zone ${file ? 'has-file' : ''}`}
+        onClick={() => !loading && fileInputRef.current?.click()}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={handleDrop}
       >
-        <input 
-          type="file" 
-          accept=".mp4,.mov,.avi" 
-          hidden 
+        <input
+          type="file"
+          accept={ACCEPTED_EXTS}
+          hidden
           ref={fileInputRef}
-          onChange={handleFileChange}
+          onChange={(e) => e.target.files?.[0] && setFile(e.target.files[0])}
         />
         {file ? (
-          <div>
-            <FileAudio size={48} className="upload-icon mx-auto" />
-            <p className="mt-2 text-lg">{file.name}</p>
+          <div className="upload-file-info">
+            <FileAudio size={40} className="upload-icon" />
+            <p className="upload-filename">{file.name}</p>
+            {videoDuration && (
+              <p className="upload-meta">{Math.round(videoDuration)}s · {(file.size / 1024 / 1024).toFixed(1)} MB</p>
+            )}
           </div>
         ) : (
-          <div>
-            <Upload size={48} className="upload-icon mx-auto" style={{ margin: '0 auto' }} />
-            <p style={{ marginTop: '1rem' }}>Click or drag file to upload</p>
+          <div className="upload-empty">
+            <Upload size={40} className="upload-icon" />
+            <p className="upload-hint">Click or drag to upload</p>
+            <p className="upload-meta">MP4 · MOV · AVI · MP3 · WAV · M4A</p>
           </div>
         )}
       </div>
 
-      {!skipStt && (
-        <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
-           <label style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>Original Audio Language</label>
-           <select 
-             value={sourceLang} 
-             onChange={(e) => setSourceLang(e.target.value)}
-             style={{ background: 'rgba(15, 23, 42, 0.8)', border: '1px solid var(--border-light)', padding: '0.5rem', borderRadius: '8px', color: 'white', minWidth: '200px' }}
-           >
-             <option value="auto">Auto-Detect</option>
-             <option value="hi-IN">Hindi (hi-IN)</option>
-             <option value="en-IN">English (en-IN)</option>
-             <option value="bn-IN">Bengali (bn-IN)</option>
-             <option value="ta-IN">Tamil (ta-IN)</option>
-             <option value="te-IN">Telugu (te-IN)</option>
-             <option value="mr-IN">Marathi (mr-IN)</option>
-             <option value="gu-IN">Gujarati (gu-IN)</option>
-             <option value="kn-IN">Kannada (kn-IN)</option>
-             <option value="ml-IN">Malayalam (ml-IN)</option>
-             <option value="pa-IN">Punjabi (pa-IN)</option>
-           </select>
+      {/* Language selector */}
+      <div className="field-group">
+        <label className="field-label">Source audio language</label>
+        <select
+          className="field-select"
+          value={sourceLang}
+          onChange={(e) => setSourceLang(e.target.value)}
+          disabled={loading}
+        >
+          {SUPPORTED_LANGS.map((l) => (
+            <option key={l.code} value={l.code}>{l.name}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Error */}
+      {error && (
+        <div className="error-banner">
+          <AlertCircle size={16} />
+          <span>{error}</span>
         </div>
       )}
 
-      <div
-        style={{
-          marginTop: '1.5rem',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: '0.5rem',
-          maxWidth: '560px',
-          marginLeft: 'auto',
-          marginRight: 'auto',
-          padding: '0.85rem 1rem',
-          borderRadius: '10px',
-          border: '1px solid rgba(139, 92, 246, 0.4)',
-          background: 'rgba(139, 92, 246, 0.08)',
-        }}
-      >
-        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.95rem', color: '#c4b5fd', cursor: 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={skipStt}
-            onChange={(e) => setSkipStt(e.target.checked)}
-            style={{ accentColor: '#8b5cf6' }}
-          />
-          <strong>Skip transcription — Gemini per-segment dub</strong>
-        </label>
-        <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.45 }}>
-          Skip the slow Sarvam STT step. Gemini will transcribe, diarize (any number of speakers),
-          translate and dub the audio in one shot. You will jump directly to Stage 3.
-        </p>
-
-        {skipStt && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.35rem', marginTop: '0.5rem' }}>
-            <label style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Target dub language</label>
-            <select
-              value={targetLang}
-              onChange={(e) => setTargetLang(e.target.value)}
-              style={{ background: 'rgba(15, 23, 42, 0.8)', border: '1px solid var(--border-light)', padding: '0.5rem', borderRadius: '8px', color: 'white', minWidth: '200px' }}
-            >
-              <option value="hi-IN">Hindi (hi-IN)</option>
-              <option value="en-IN">English (en-IN)</option>
-              <option value="bn-IN">Bengali (bn-IN)</option>
-              <option value="ta-IN">Tamil (ta-IN)</option>
-              <option value="te-IN">Telugu (te-IN)</option>
-              <option value="mr-IN">Marathi (mr-IN)</option>
-              <option value="gu-IN">Gujarati (gu-IN)</option>
-              <option value="kn-IN">Kannada (kn-IN)</option>
-              <option value="ml-IN">Malayalam (ml-IN)</option>
-              <option value="pa-IN">Punjabi (pa-IN)</option>
-            </select>
-          </div>
-        )}
-      </div>
-
-      {error && <p style={{color: '#ef4444', marginTop: '1rem'}}>{error}</p>}
-
-      {file && !loading && !skipStt && Number.isFinite(videoDurationSec) && videoDurationSec > 0 && (
-        <p style={{ color: 'var(--text-muted)', marginTop: '1rem', fontSize: '0.9rem' }}>
-          Detected video length {Math.ceil(videoDurationSec / 60)} min — typical STT wait{' '}
-          <strong>{formatEtaRange(sttEtaSeconds)}</strong> (rough guide; queue load varies).
+      {/* ETA */}
+      {file && !loading && videoDuration && (
+        <p className="eta-hint">
+          ~{Math.ceil(videoDuration / 60)} min video — STT usually takes 20–60s
         </p>
       )}
 
-      <div style={{marginTop: '2rem'}}>
-        <button 
-          className="btn" 
-          onClick={handleUpload} 
-          disabled={!file || loading}
-        >
-          {loading ? (
-            <>
-              <Loader2 className="loader" size={20} />
-              {skipStt ? 'Uploading (no STT)...' : 'Processing (Extracting Audio & Preparing)...'}
-            </>
-          ) : skipStt ? 'Upload & Jump to Gemini Dub' : 'Upload & Prepare for Translation'}
-        </button>
-        {loading && !skipStt && (
-          <p
-            style={{
-              color: 'var(--text-muted)',
-              marginTop: '1rem',
-              fontSize: '0.92rem',
-              maxWidth: '420px',
-              marginLeft: 'auto',
-              marginRight: 'auto',
-            }}
-          >
-            Estimated STT (diarized batch){' '}
-            <strong>{formatEtaRange(sttEtaSeconds)}</strong>
-            {' · '}
-            Elapsed <strong>{formatElapsedClock(elapsedSec)}</strong>
-          </p>
+      {/* Submit */}
+      <button className="btn-primary" onClick={handleUpload} disabled={!file || loading}>
+        {loading ? (
+          <>
+            <Loader2 size={18} className="spin" />
+            Transcribing&hellip; &nbsp;{fmtDur(elapsed)}
+          </>
+        ) : (
+          <>
+            <Upload size={18} />
+            Upload &amp; Transcribe
+          </>
         )}
-        {loading && skipStt && (
-          <p
-            style={{
-              color: 'var(--text-muted)',
-              marginTop: '1rem',
-              fontSize: '0.92rem',
-              maxWidth: '420px',
-              marginLeft: 'auto',
-              marginRight: 'auto',
-            }}
-          >
-            Just extracting audio — no STT call. Elapsed{' '}
-            <strong>{formatElapsedClock(elapsedSec)}</strong>
-          </p>
-        )}
-      </div>
+      </button>
+
+      {loading && (
+        <p className="progress-note">
+           Scribe is diarizing speakers — this usually takes 15–60s
+        </p>
+      )}
     </div>
   );
 }

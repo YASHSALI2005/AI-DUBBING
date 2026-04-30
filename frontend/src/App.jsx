@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { LogOut, Zap, GitBranch } from 'lucide-react';
+import { LogOut } from 'lucide-react';
 import Stage1Upload from './components/Stage1Upload';
 import Stage2Translate from './components/Stage2Translate';
 import Stage3Voices from './components/Stage3Voices';
@@ -190,31 +190,6 @@ function App() {
         <h1>PARROT AI Dubbing </h1>
         <p>Automated Video Localization Pipeline</p>
 
-        {/* Mode Toggle */}
-        <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem', marginTop: '1rem' }}>
-          <button
-            id="mode-pipeline-btn"
-            onClick={() => setAppMode('pipeline')}
-            className={appMode === 'pipeline' ? 'btn' : 'btn btn-secondary'}
-            style={{
-              padding: '0.45rem 1.1rem', fontSize: '0.88rem',
-              background: appMode === 'pipeline' ? 'var(--accent)' : undefined,
-            }}
-          >
-            <GitBranch size={15} /> Manual Pipeline
-          </button>
-          <button
-            id="mode-direct-btn"
-            onClick={() => setAppMode('direct')}
-            className={appMode === 'direct' ? 'btn' : 'btn btn-secondary'}
-            style={{
-              padding: '0.45rem 1.1rem', fontSize: '0.88rem',
-              background: appMode === 'direct' ? 'linear-gradient(135deg,#7c3aed,#3b82f6)' : undefined,
-            }}
-          >
-            <Zap size={15} /> Direct  Dub
-          </button>
-        </div>
       </header>
 
       {appMode === 'pipeline' && (
