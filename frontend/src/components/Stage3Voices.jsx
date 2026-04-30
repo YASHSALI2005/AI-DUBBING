@@ -95,7 +95,7 @@ export default function Stage3Translate({
         <div>
           <h2 className="stage-title">Translate</h2>
           <p className="stage-subtitle">
-            ElevenLabs translates to {langName(targetLang)}
+            Gemini translates to {langName(targetLang)}
           </p>
         </div>
       </div>
@@ -124,7 +124,7 @@ export default function Stage3Translate({
           <Loader2 size={24} className="spin" />
           <div>
             <p className="proc-title">
-              Translating {blocks.length} segments via ElevenLabs…
+              Translating {blocks.length} segments via Gemini…
             </p>
           </div>
         </div>

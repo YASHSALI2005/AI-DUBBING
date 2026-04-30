@@ -14,7 +14,7 @@ export default function ProfileMenu({ user, onOpenSettings, onLogout }) {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const initials = (user?.name || user?.address || '?')
+  const initials = (user?.name || user?.email || '?')
     .split(/\s+/)
     .map((s) => s[0])
     .filter(Boolean)
@@ -30,7 +30,7 @@ export default function ProfileMenu({ user, onOpenSettings, onLogout }) {
         className="profile-avatar"
         onClick={() => setOpen((v) => !v)}
         aria-label="Open profile menu"
-        title={user?.name || user?.address}
+        title={user?.name || user?.email}
       >
         {initials || <User size={16} />}
       </button>
@@ -38,7 +38,7 @@ export default function ProfileMenu({ user, onOpenSettings, onLogout }) {
         <div className="profile-dropdown">
           <div className="profile-info">
             <div className="profile-name">{user?.name || '—'}</div>
-            <div className="profile-meta">{user?.address}</div>
+            <div className="profile-meta">{user?.email}</div>
             <div className="profile-role">{user?.role}</div>
           </div>
           <div className="profile-divider" />

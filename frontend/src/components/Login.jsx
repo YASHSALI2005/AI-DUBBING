@@ -3,7 +3,7 @@ import axios from 'axios';
 import { LogIn, Eye, EyeOff } from 'lucide-react';
 
 const Login = ({ apiBase, onLogin }) => {
-  const [address, setAddress]   = useState('');
+  const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
   const [showPwd, setShowPwd]   = useState(false);
   const [error, setError]       = useState('');
@@ -14,7 +14,10 @@ const Login = ({ apiBase, onLogin }) => {
     setError('');
     setBusy(true);
     try {
-      const res = await axios.post(`${apiBase}/auth/login`, { address, password });
+      const res = await axios.post(`${apiBase}/auth/login`, {
+        email: email.trim().toLowerCase(),
+        password,
+      });
       onLogin(res.data.token, res.data.user);
     } catch (err) {
       const detail = err?.response?.data?.detail || err.message || 'Login failed';
@@ -43,14 +46,14 @@ const Login = ({ apiBase, onLogin }) => {
 
         <form onSubmit={handleSubmit}>
           <div className="form-group">
-            <label htmlFor="address">Address</label>
+            <label htmlFor="email">Email</label>
             <input
-              type="text"
-              id="address"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="Enter your address"
-              autoComplete="username"
+              type="email"
+              id="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              autoComplete="email"
               required
             />
           </div>
