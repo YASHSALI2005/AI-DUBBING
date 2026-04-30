@@ -24,6 +24,7 @@ export default function DirectDub({ apiBase }) {
   const [languages, setLanguages] = useState(FALLBACK_LANGUAGES);
   const [languagesLoading, setLanguagesLoading] = useState(true);
   const [targetLang, setTargetLang] = useState('hi');
+  const [langPickerOpen, setLangPickerOpen] = useState(false);
   const [numSpeakers, setNumSpeakers] = useState(0);
   const [disableCloning, setDisableCloning] = useState(false);
   const [statusText, setStatusText] = useState('');
@@ -245,16 +246,36 @@ export default function DirectDub({ apiBase }) {
         <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
           <Globe2 size={15} /> Target Language {languagesLoading && <span style={{ opacity: 0.6 }}>(loading...)</span>}
         </label>
-        <select
-          value={targetLang}
-          onChange={e => setTargetLang(e.target.value)}
+        <button
+          type="button"
+          className="lang-picker-trigger"
+          onClick={() => setLangPickerOpen((v) => !v)}
           disabled={languagesLoading}
-          style={{ background: 'rgba(15,23,42,0.8)' }}
+          aria-expanded={langPickerOpen}
+          aria-label="Choose target dub language"
         >
-          {languages.map(l => (
-            <option key={l.code} value={l.code}>{l.flag} {l.name} ({l.code})</option>
-          ))}
-        </select>
+          {languages.find((l) => l.code === targetLang)?.name || targetLang}
+          <span className="lang-picker-caret">{langPickerOpen ? '▴' : '▾'}</span>
+        </button>
+        {langPickerOpen && (
+          <div className={`lang-scroll-list ${languagesLoading ? 'disabled' : ''}`} role="listbox" aria-label="Target language">
+            {languages.map((l) => (
+              <button
+                key={l.code}
+                type="button"
+                className={`lang-option ${targetLang === l.code ? 'selected' : ''}`}
+                onClick={() => {
+                  setTargetLang(l.code);
+                  setLangPickerOpen(false);
+                }}
+                disabled={languagesLoading}
+                aria-selected={targetLang === l.code}
+              >
+                <span>{l.flag ? `${l.flag} ` : ''}{l.name} ({l.code})</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Advanced Options */}

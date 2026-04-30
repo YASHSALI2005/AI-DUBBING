@@ -285,6 +285,7 @@ ELEVEN_DUBBING_POLL_INTERVAL_SECONDS = float(os.getenv("ELEVEN_DUBBING_POLL_INTE
 ELEVEN_DUBBING_TIMEOUT_SECONDS      = int(os.getenv("ELEVEN_DUBBING_TIMEOUT_SECONDS", "600"))
 
 GEMINI_MODEL                = os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
+GEMINI_TRANSLATE_MODEL      = os.getenv("GEMINI_TRANSLATE_MODEL", "gemini-2.5-pro")
 GEMINI_MAX_WORKERS          = int(os.getenv("GEMINI_MAX_WORKERS", "1"))
 GEMINI_RETRY_ATTEMPTS       = int(os.getenv("GEMINI_RETRY_ATTEMPTS", "5"))
 GEMINI_RETRY_BASE_SECONDS   = float(os.getenv("GEMINI_RETRY_BASE_SECONDS", "2.0"))
@@ -612,7 +613,7 @@ def gemini_translate_text(
 
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{GEMINI_MODEL}:generateContent?key={urllib.parse.quote(GEMINI_API_KEY)}"
+        f"{GEMINI_TRANSLATE_MODEL}:generateContent?key={urllib.parse.quote(GEMINI_API_KEY)}"
     )
     req = urllib.request.Request(
         url=url,
@@ -1355,7 +1356,21 @@ async def translate_languages():
     return JSONResponse(content={
         "languages": GEMINI_TRANSLATE_LANGUAGES,
         "provider":  "gemini",
-        "model":     GEMINI_MODEL,
+        "model":     GEMINI_TRANSLATE_MODEL,
+    })
+
+
+@app.get("/api/gemini/voices")
+async def gemini_voices():
+    """List available Gemini TTS prebuilt voices."""
+    voices = [
+        {"id": voice, "name": voice, "gender": gender}
+        for voice, gender in gemini_seg.VOICE_GENDER.items()
+    ]
+    voices.sort(key=lambda v: (v["gender"], v["name"].lower()))
+    return JSONResponse(content={
+        "voices": voices,
+        "provider": "gemini",
     })
 
 
@@ -1422,7 +1437,7 @@ async def translate_text(req: TranslateRequest):
         "estimated_translate_seconds": round(estimated_translate_seconds, 1),
         "translation_processing_seconds": round(translation_processing_seconds, 2),
         "provider": "gemini",
-        "model":    GEMINI_MODEL,
+        "model":    GEMINI_TRANSLATE_MODEL,
     })
 
 

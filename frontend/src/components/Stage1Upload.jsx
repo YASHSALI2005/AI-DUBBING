@@ -4,25 +4,105 @@ import { Upload, FileAudio, Loader2, AlertCircle } from 'lucide-react';
 
 const SUPPORTED_LANGS = [
   { code: '',      name: 'Auto-detect' },
-  { code: 'en',   name: 'English' },
-  { code: 'hi',   name: 'Hindi' },
-  { code: 'es',   name: 'Spanish' },
-  { code: 'fr',   name: 'French' },
-  { code: 'de',   name: 'German' },
-  { code: 'ja',   name: 'Japanese' },
-  { code: 'zh',   name: 'Chinese' },
-  { code: 'ar',   name: 'Arabic' },
-  { code: 'pt',   name: 'Portuguese' },
-  { code: 'it',   name: 'Italian' },
-  { code: 'ko',   name: 'Korean' },
-  { code: 'ta',   name: 'Tamil' },
-  { code: 'te',   name: 'Telugu' },
-  { code: 'bn',   name: 'Bengali' },
-  { code: 'mr',   name: 'Marathi' },
-  { code: 'gu',   name: 'Gujarati' },
-  { code: 'kn',   name: 'Kannada' },
-  { code: 'ml',   name: 'Malayalam' },
-  { code: 'pa',   name: 'Punjabi' },
+  { code: 'afr', name: 'Afrikaans' },
+  { code: 'amh', name: 'Amharic' },
+  { code: 'ara', name: 'Arabic' },
+  { code: 'hye', name: 'Armenian' },
+  { code: 'asm', name: 'Assamese' },
+  { code: 'ast', name: 'Asturian' },
+  { code: 'aze', name: 'Azerbaijani' },
+  { code: 'bel', name: 'Belarusian' },
+  { code: 'ben', name: 'Bengali' },
+  { code: 'bos', name: 'Bosnian' },
+  { code: 'bul', name: 'Bulgarian' },
+  { code: 'mya', name: 'Burmese' },
+  { code: 'yue', name: 'Cantonese' },
+  { code: 'cat', name: 'Catalan' },
+  { code: 'ceb', name: 'Cebuano' },
+  { code: 'nya', name: 'Chichewa' },
+  { code: 'hrv', name: 'Croatian' },
+  { code: 'ces', name: 'Czech' },
+  { code: 'dan', name: 'Danish' },
+  { code: 'nld', name: 'Dutch' },
+  { code: 'eng', name: 'English' },
+  { code: 'est', name: 'Estonian' },
+  { code: 'fil', name: 'Filipino' },
+  { code: 'fin', name: 'Finnish' },
+  { code: 'fra', name: 'French' },
+  { code: 'ful', name: 'Fulah' },
+  { code: 'glg', name: 'Galician' },
+  { code: 'lug', name: 'Ganda' },
+  { code: 'kat', name: 'Georgian' },
+  { code: 'deu', name: 'German' },
+  { code: 'ell', name: 'Greek' },
+  { code: 'guj', name: 'Gujarati' },
+  { code: 'hau', name: 'Hausa' },
+  { code: 'heb', name: 'Hebrew' },
+  { code: 'hin', name: 'Hindi' },
+  { code: 'hun', name: 'Hungarian' },
+  { code: 'isl', name: 'Icelandic' },
+  { code: 'ibo', name: 'Igbo' },
+  { code: 'ind', name: 'Indonesian' },
+  { code: 'gle', name: 'Irish' },
+  { code: 'ita', name: 'Italian' },
+  { code: 'jpn', name: 'Japanese' },
+  { code: 'jav', name: 'Javanese' },
+  { code: 'kea', name: 'Kabuverdianu' },
+  { code: 'kan', name: 'Kannada' },
+  { code: 'kaz', name: 'Kazakh' },
+  { code: 'khm', name: 'Khmer' },
+  { code: 'kor', name: 'Korean' },
+  { code: 'kur', name: 'Kurdish' },
+  { code: 'kir', name: 'Kyrgyz' },
+  { code: 'lao', name: 'Lao' },
+  { code: 'lav', name: 'Latvian' },
+  { code: 'lin', name: 'Lingala' },
+  { code: 'lit', name: 'Lithuanian' },
+  { code: 'luo', name: 'Luo' },
+  { code: 'ltz', name: 'Luxembourgish' },
+  { code: 'mkd', name: 'Macedonian' },
+  { code: 'msa', name: 'Malay' },
+  { code: 'mal', name: 'Malayalam' },
+  { code: 'mlt', name: 'Maltese' },
+  { code: 'zho', name: 'Mandarin Chinese' },
+  { code: 'mri', name: 'Maori' },
+  { code: 'mar', name: 'Marathi' },
+  { code: 'mon', name: 'Mongolian' },
+  { code: 'nep', name: 'Nepali' },
+  { code: 'nso', name: 'Northern Sotho' },
+  { code: 'nor', name: 'Norwegian' },
+  { code: 'oci', name: 'Occitan' },
+  { code: 'ori', name: 'Odia' },
+  { code: 'pus', name: 'Pashto' },
+  { code: 'fas', name: 'Persian' },
+  { code: 'pol', name: 'Polish' },
+  { code: 'por', name: 'Portuguese' },
+  { code: 'pan', name: 'Punjabi' },
+  { code: 'ron', name: 'Romanian' },
+  { code: 'rus', name: 'Russian' },
+  { code: 'srp', name: 'Serbian' },
+  { code: 'sna', name: 'Shona' },
+  { code: 'snd', name: 'Sindhi' },
+  { code: 'slk', name: 'Slovak' },
+  { code: 'slv', name: 'Slovenian' },
+  { code: 'som', name: 'Somali' },
+  { code: 'spa', name: 'Spanish' },
+  { code: 'swa', name: 'Swahili' },
+  { code: 'swe', name: 'Swedish' },
+  { code: 'tam', name: 'Tamil' },
+  { code: 'tgk', name: 'Tajik' },
+  { code: 'tel', name: 'Telugu' },
+  { code: 'tha', name: 'Thai' },
+  { code: 'tur', name: 'Turkish' },
+  { code: 'ukr', name: 'Ukrainian' },
+  { code: 'umb', name: 'Umbundu' },
+  { code: 'urd', name: 'Urdu' },
+  { code: 'uzb', name: 'Uzbek' },
+  { code: 'vie', name: 'Vietnamese' },
+  { code: 'cym', name: 'Welsh' },
+  { code: 'wol', name: 'Wolof' },
+  { code: 'xho', name: 'Xhosa' },
+  { code: 'zul', name: 'Zulu' },
 ];
 
 const ACCEPTED_EXTS = '.mp4,.mov,.avi,.mp3,.wav,.m4a,.webm';
@@ -30,6 +110,7 @@ const ACCEPTED_EXTS = '.mp4,.mov,.avi,.mp3,.wav,.m4a,.webm';
 export default function Stage1Upload({ apiBase, onComplete }) {
   const [file, setFile]             = useState(null);
   const [sourceLang, setSourceLang] = useState('');
+  const [langPickerOpen, setLangPickerOpen] = useState(false);
   const [loading, setLoading]       = useState(false);
   const [error, setError]           = useState('');
   const [elapsed, setElapsed]       = useState(0);
@@ -141,16 +222,36 @@ export default function Stage1Upload({ apiBase, onComplete }) {
       {/* Language selector */}
       <div className="field-group">
         <label className="field-label">Source audio language</label>
-        <select
-          className="field-select"
-          value={sourceLang}
-          onChange={(e) => setSourceLang(e.target.value)}
+        <button
+          type="button"
+          className="lang-picker-trigger"
+          onClick={() => setLangPickerOpen((v) => !v)}
           disabled={loading}
+          aria-expanded={langPickerOpen}
+          aria-label="Choose source language"
         >
-          {SUPPORTED_LANGS.map((l) => (
-            <option key={l.code} value={l.code}>{l.name}</option>
-          ))}
-        </select>
+          {SUPPORTED_LANGS.find((l) => l.code === sourceLang)?.name || 'Auto-detect'}
+          <span className="lang-picker-caret">{langPickerOpen ? '▴' : '▾'}</span>
+        </button>
+        {langPickerOpen && (
+          <div className={`lang-scroll-list ${loading ? 'disabled' : ''}`} role="listbox" aria-label="Source audio language">
+            {SUPPORTED_LANGS.map((l) => (
+              <button
+                key={l.code || 'auto'}
+                type="button"
+                className={`lang-option ${sourceLang === l.code ? 'selected' : ''}`}
+                onClick={() => {
+                  setSourceLang(l.code);
+                  setLangPickerOpen(false);
+                }}
+                disabled={loading}
+                aria-selected={sourceLang === l.code}
+              >
+                <span>{l.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Error */}
