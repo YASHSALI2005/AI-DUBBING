@@ -1,20 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { LogOut } from 'lucide-react';
 import Stage1Upload from './components/Stage1Upload';
 import Stage2Translate from './components/Stage2Translate';
 import Stage3Voices from './components/Stage3Voices';
 import AudioPlayer from './components/AudioPlayer';
 import Login from './components/Login';
 import DirectDub from './components/DirectDub';
+import ProfileMenu from './components/ProfileMenu';
+import Settings from './components/Settings';
 
 const API_BASE = 'http://localhost:8000/api';
-const APP_STATE_KEY = 'vrfilms_dubbing_state_v1';
+const APP_STATE_KEY  = 'vrfilms_dubbing_state_v1';
+const AUTH_TOKEN_KEY = 'vrfilms_auth_token_v2';
+const AUTH_USER_KEY  = 'vrfilms_auth_user_v2';
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return localStorage.getItem('vrfilms_auth_state_v1') === 'true';
+  const [authToken, setAuthToken] = useState(() => localStorage.getItem(AUTH_TOKEN_KEY) || null);
+  const [authUser, setAuthUser]   = useState(() => {
+    try { return JSON.parse(localStorage.getItem(AUTH_USER_KEY) || 'null'); } catch { return null; }
   });
-  const [appMode, setAppMode] = useState('pipeline'); // 'pipeline' | 'direct'
+  const [view, setView]           = useState('app'); // 'app' | 'settings'
+  const [appMode, setAppMode]     = useState('pipeline'); // 'pipeline' | 'direct'
   const [currentStage, setCurrentStage] = useState(1);
   const [transcriptBlocks, setTranscriptBlocks] = useState([]);
   const [translatedBlocks, setTranslatedBlocks] = useState([]);
@@ -25,6 +30,9 @@ function App() {
   const [sessionId, setSessionId] = useState(null);
   const [finalVideoUrl, setFinalVideoUrl] = useState(null);
   const [experimentMode, setExperimentMode] = useState('translated_sarvam');
+
+  const isAuthenticated = !!authToken && !!authUser;
+  const isAdmin         = authUser?.role === 'admin';
 
   useEffect(() => {
     try {
@@ -117,9 +125,6 @@ function App() {
     navigateTo(2);
   };
 
-  // Fast-upload path: file landed via /api/upload-fast (no STT). Skip Stage 2
-  // entirely and jump straight to Stage 3 in Gemini per-segment dub mode —
-  // Gemini will transcribe + diarize + translate + dub during synthesis.
   const handleFastUploaded = (uploadedFile, sId, tgtLang) => {
     setVideoFile(uploadedFile);
     setSessionId(sId);
@@ -161,97 +166,121 @@ function App() {
     setCurrentStage(1);
   };
 
-  const handleLogin = () => {
-    setIsAuthenticated(true);
-    localStorage.setItem('vrfilms_auth_state_v1', 'true');
-  };
-
-  const handleLogout = () => {
-    setIsAuthenticated(false);
+  const handleLogin = (token, user) => {
+    setAuthToken(token);
+    setAuthUser(user);
+    localStorage.setItem(AUTH_TOKEN_KEY, token);
+    localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+    // Clean up legacy auth flag from earlier versions
     localStorage.removeItem('vrfilms_auth_state_v1');
   };
 
+  const handleLogout = () => {
+    setAuthToken(null);
+    setAuthUser(null);
+    setView('app');
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(AUTH_USER_KEY);
+  };
+
+  const openSettings = () => {
+    if (!isAdmin) return;
+    setView('settings');
+  };
+
   if (!isAuthenticated) {
-    return <Login onLogin={handleLogin} />;
+    return <Login apiBase={API_BASE} onLogin={handleLogin} />;
   }
 
   return (
     <div className="app-container">
       <header className="header" style={{ position: 'relative' }}>
-        <button 
-          onClick={handleLogout}
-          className="btn btn-secondary" 
-          style={{ position: 'absolute', right: 0, top: 0, padding: '0.5rem 1rem' }}
-          title="Sign Out"
-        >
-          <LogOut size={18} />
-          <span style={{ marginLeft: '0.5rem' }}>Sign Out</span>
-        </button>
+        <div style={{ position: 'absolute', right: 0, top: 0 }}>
+          <ProfileMenu
+            user={authUser}
+            onOpenSettings={openSettings}
+            onLogout={handleLogout}
+          />
+        </div>
         <h1>PARROT AI Dubbing </h1>
         <p>Automated Video Localization Pipeline</p>
-
       </header>
 
-      {appMode === 'pipeline' && (
-        <div className="stepper">
-          {[1, 2, 3].map(step => (
-            <div 
-              key={step} 
-              className={`step ${currentStage === step ? 'active' : ''} ${currentStage > step ? 'completed' : ''}`}
-            >
-              {currentStage > step ? '✓' : step}
-            </div>
-          ))}
-        </div>
+      {view === 'settings' && isAdmin && (
+        <main className="glass-card">
+          <Settings
+            apiBase={API_BASE}
+            token={authToken}
+            currentUser={authUser}
+            onBack={() => setView('app')}
+          />
+        </main>
       )}
 
-      <main className="glass-card">
-        {appMode === 'direct' && (
-          <DirectDub apiBase={API_BASE} />
-        )}
+      {view === 'app' && (
+        <>
+          {appMode === 'pipeline' && (
+            <div className="stepper">
+              {[1, 2, 3].map(step => (
+                <div
+                  key={step}
+                  className={`step ${currentStage === step ? 'active' : ''} ${currentStage > step ? 'completed' : ''}`}
+                >
+                  {currentStage > step ? '✓' : step}
+                </div>
+              ))}
+            </div>
+          )}
 
-        {appMode === 'pipeline' && currentStage === 1 && (
-          <Stage1Upload
-            apiBase={API_BASE}
-            onComplete={handleTranscribed}
-            onFastUploadComplete={handleFastUploaded}
-          />
-        )}
-        
-        {appMode === 'pipeline' && currentStage === 2 && (
-          <Stage2Translate 
-            apiBase={API_BASE} 
-            blocks={transcriptBlocks} 
-            sourceLang={sourceLang}
-            sessionId={sessionId}
-            videoFile={videoFile}
-            onComplete={handleTranslated} 
-          />
-        )}
+          <main className="glass-card">
+            {appMode === 'direct' && (
+              <DirectDub apiBase={API_BASE} />
+            )}
 
-        {appMode === 'pipeline' && currentStage === 3 && (
-          <Stage3Voices 
-            apiBase={API_BASE} 
-            blocks={translatedBlocks} 
-            videoFile={videoFile}
-            targetLang={selectedLang}
-            experimentMode={experimentMode}
-            sessionId={sessionId}
-            finalVideoUrl={finalVideoUrl}
-            onComplete={handleSynthesized}
-            onViewResult={() => navigateTo(4)}
-          />
-        )}
+            {appMode === 'pipeline' && currentStage === 1 && (
+              <Stage1Upload
+                apiBase={API_BASE}
+                onComplete={handleTranscribed}
+                onFastUploadComplete={handleFastUploaded}
+              />
+            )}
 
-        {appMode === 'pipeline' && currentStage === 4 && (
-          <AudioPlayer 
-            audioUrl={finalAudioUrl} 
-            videoUrl={finalVideoUrl}
-            onBack={() => navigateTo(3)}
-            onReset={handleReset} 
-          />
-        )}
-      </main>
+            {appMode === 'pipeline' && currentStage === 2 && (
+              <Stage2Translate
+                apiBase={API_BASE}
+                blocks={transcriptBlocks}
+                sourceLang={sourceLang}
+                sessionId={sessionId}
+                videoFile={videoFile}
+                onComplete={handleTranslated}
+              />
+            )}
+
+            {appMode === 'pipeline' && currentStage === 3 && (
+              <Stage3Voices
+                apiBase={API_BASE}
+                blocks={translatedBlocks}
+                videoFile={videoFile}
+                targetLang={selectedLang}
+                experimentMode={experimentMode}
+                sessionId={sessionId}
+                finalVideoUrl={finalVideoUrl}
+                onComplete={handleSynthesized}
+                onViewResult={() => navigateTo(4)}
+              />
+            )}
+
+            {appMode === 'pipeline' && currentStage === 4 && (
+              <AudioPlayer
+                audioUrl={finalAudioUrl}
+                videoUrl={finalVideoUrl}
+                onBack={() => navigateTo(3)}
+                onReset={handleReset}
+              />
+            )}
+          </main>
+        </>
+      )}
     </div>
   );
 }

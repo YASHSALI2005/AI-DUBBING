@@ -15,7 +15,8 @@ import traceback
 import urllib.request
 import urllib.error
 import urllib.parse
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException
+from datetime import datetime, timedelta, timezone
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
@@ -24,6 +25,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from pydub import AudioSegment
 from dotenv import load_dotenv
+
+import bcrypt
+import jwt
+from sqlalchemy import create_engine, Column, Integer, String, DateTime
+from sqlalchemy.orm import declarative_base, sessionmaker, Session
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 # The N-speaker single-TTS pipeline lives in scratch/tts_experiment.py
 _SCRATCH_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scratch")
@@ -42,6 +49,195 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# =============================================================================
+# Auth + MySQL user store
+# =============================================================================
+
+MYSQL_HOST     = os.getenv("MYSQL_HOST", "localhost")
+MYSQL_PORT     = int(os.getenv("MYSQL_PORT", "3306"))
+MYSQL_USER     = os.getenv("MYSQL_USER", "root")
+MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "")
+MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "vrfilms_dubbing")
+
+JWT_SECRET       = os.getenv("JWT_SECRET", "change-me-in-prod")
+JWT_ALGORITHM    = "HS256"
+JWT_EXPIRY_HOURS = int(os.getenv("JWT_EXPIRY_HOURS", "24"))
+
+ROLE_ADMIN    = "admin"
+ROLE_ENGINEER = "engineer"
+VALID_ROLES   = {ROLE_ADMIN, ROLE_ENGINEER}
+
+_pwd = urllib.parse.quote_plus(MYSQL_PASSWORD)
+_user = urllib.parse.quote_plus(MYSQL_USER)
+DB_URL = f"mysql+pymysql://{_user}:{_pwd}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}?charset=utf8mb4"
+
+engine = create_engine(DB_URL, pool_pre_ping=True, pool_recycle=1800, future=True)
+SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False, future=True)
+Base = declarative_base()
+
+
+class User(Base):
+    __tablename__ = "users"
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    name          = Column(String(120), nullable=False)
+    address       = Column(String(190), nullable=False, unique=True)
+    password_hash = Column(String(255), nullable=False)
+    role          = Column(String(32),  nullable=False, default=ROLE_ENGINEER)
+    created_at    = Column(DateTime,    nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
+def _hash_password(pwd: str) -> str:
+    return bcrypt.hashpw(pwd.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def _verify_password(pwd: str, stored_hash: str) -> bool:
+    try:
+        return bcrypt.checkpw(pwd.encode("utf-8"), stored_hash.encode("utf-8"))
+    except ValueError:
+        return False
+
+
+def _create_token(user: "User") -> str:
+    payload = {
+        "sub":  user.id,
+        "name": user.name,
+        "addr": user.address,
+        "role": user.role,
+        "exp":  datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRY_HOURS),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def get_current_user(
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+) -> "User":
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+    token = authorization.split(" ", 1)[1].strip()
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    user = db.get(User, payload.get("sub"))
+    if user is None:
+        raise HTTPException(status_code=401, detail="User no longer exists")
+    return user
+
+
+def require_admin(user: "User" = Depends(get_current_user)) -> "User":
+    if user.role != ROLE_ADMIN:
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+    return user
+
+
+@app.on_event("startup")
+def _init_db_and_seed_admin():
+    """Create tables and seed an initial admin if there are no users yet.
+    Fails soft on connection errors so the rest of the API still loads."""
+    try:
+        Base.metadata.create_all(engine)
+    except OperationalError as exc:
+        print(f"[auth] WARNING: cannot connect to MySQL ({exc.orig}); login will fail until DB is reachable.")
+        return
+
+    seed_addr = os.getenv("INITIAL_ADMIN_ADDRESS", "admin")
+    seed_pwd  = os.getenv("INITIAL_ADMIN_PASSWORD", "Vrfilms@2026")
+    seed_name = os.getenv("INITIAL_ADMIN_NAME", "Admin")
+    try:
+        with SessionLocal() as db:
+            if db.query(User).count() == 0:
+                db.add(User(
+                    name=seed_name,
+                    address=seed_addr,
+                    password_hash=_hash_password(seed_pwd),
+                    role=ROLE_ADMIN,
+                ))
+                db.commit()
+                print(f"[auth] Seeded initial admin: {seed_addr}")
+    except OperationalError as exc:
+        print(f"[auth] WARNING: seed skipped ({exc.orig}).")
+
+
+# ── Auth pydantic models ─────────────────────────────────────────────────────
+
+class LoginRequest(BaseModel):
+    address: str
+    password: str
+
+
+class UserCreateRequest(BaseModel):
+    name: str
+    address: str
+    password: str
+    role: str = ROLE_ENGINEER
+
+
+def _user_to_dict(u: "User") -> Dict[str, Any]:
+    return {
+        "id":         u.id,
+        "name":       u.name,
+        "address":    u.address,
+        "role":       u.role,
+        "created_at": u.created_at.isoformat() if u.created_at else None,
+    }
+
+
+# ── Auth endpoints ───────────────────────────────────────────────────────────
+
+@app.post("/api/auth/login")
+def auth_login(body: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.address == body.address).first()
+    if user is None or not _verify_password(body.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    return {"token": _create_token(user), "user": _user_to_dict(user)}
+
+
+@app.get("/api/auth/me")
+def auth_me(user: "User" = Depends(get_current_user)):
+    return _user_to_dict(user)
+
+
+@app.get("/api/users")
+def list_users(_admin: "User" = Depends(require_admin), db: Session = Depends(get_db)):
+    users = db.query(User).order_by(User.id.asc()).all()
+    return {"users": [_user_to_dict(u) for u in users]}
+
+
+@app.post("/api/users")
+def create_user(
+    body: UserCreateRequest,
+    _admin: "User" = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    role = (body.role or ROLE_ENGINEER).strip().lower()
+    if role not in VALID_ROLES:
+        raise HTTPException(status_code=400, detail=f"Invalid role; expected one of {sorted(VALID_ROLES)}")
+    name = body.name.strip()
+    addr = body.address.strip()
+    if not name or not addr or not body.password:
+        raise HTTPException(status_code=400, detail="name, address, and password are required")
+    user = User(name=name, address=addr, password_hash=_hash_password(body.password), role=role)
+    db.add(user)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="A user with that address already exists")
+    db.refresh(user)
+    return _user_to_dict(user)
+
 
 # ── API Keys ──────────────────────────────────────────────────────────────────
 ELEVEN_KEY      = os.getenv("ELEVEN_API_KEY")
