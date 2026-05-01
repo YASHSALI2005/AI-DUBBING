@@ -49,8 +49,8 @@ def download_yt_video(url, output_filename="video"):
 
         # ✅ trim
         'download_ranges': lambda info, ydl: [{
-            'start_time': 18,
-            'end_time': 32
+            'start_time': 540,
+            'end_time': 1200
         }],
         'force_keyframes_at_cuts': True,
         'retries': 10,
@@ -73,4 +73,4 @@ def download_yt_video(url, output_filename="video"):
 
 
 if __name__ == "__main__":
-    download_yt_video("https://youtu.be/YyCXp_E4sMU?si=FSSu5rPFDhNDwiWa", "my_video7_trim")
+    download_yt_video("https://youtu.be/tnvjsdOP62k?si=DN4jk2BlCNUdeMF-", "my_video9_trim")

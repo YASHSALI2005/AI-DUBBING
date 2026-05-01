@@ -54,7 +54,7 @@ TTS_MODEL = "gemini-3.1-flash-tts-preview"
 # Speed-match limits for dubbing mode.
 # Max tempo: anything above 1.25x sounds like "2x" — keep it natural.
 # Min tempo: below 0.80x sounds robotic/dragged — pad silence instead.
-DUBBING_MAX_TEMPO = float(os.getenv("DUBBING_MAX_TEMPO", "1.25"))
+DUBBING_MAX_TEMPO = float(os.getenv("DUBBING_MAX_TEMPO", "1.12"))
 DUBBING_MIN_TEMPO = float(os.getenv("DUBBING_MIN_TEMPO", "0.82"))
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".avi", ".webm", ".flv", ".m4v"}
@@ -839,7 +839,7 @@ def speed_match_wav(wav_path: Path, target_duration_s: float,
 
 def force_exact_duration(wav_path: Path, target_duration_s: float,
                          fade_out_ms: int = 80,
-                         max_safe_trim_s: float = 0.8) -> None:
+                         max_safe_trim_s: float = 1.5) -> None:
     """Make wav_path EXACTLY target_duration_s long — SAFELY.
 
     - If shorter: pad the end with silence so dubbed audio doesn't end early.
@@ -848,6 +848,11 @@ def force_exact_duration(wav_path: Path, target_duration_s: float,
       Print a clear warning and skip the trim, so the user notices that
       the upstream stages (translation/TTS pace) need tuning rather than
       having entire sentences silently disappear.
+
+    NOTE: default raised from 0.8s -> 1.5s because dubbed Hindi/Hinglish TTS
+    naturally overshoots by up to 1.4s on dense segments; refusing to trim
+    those caused oversized clips to spill into the next speaker's slot on the
+    timeline, producing mixed/overlapping audio in the final output.
     """
     current = get_audio_duration(wav_path)
     if current <= 0 or target_duration_s <= 0:
@@ -1071,9 +1076,9 @@ TAGGED TRANSCRIPT:
 
 LENGTH CONSTRAINT (CRITICAL for dubbing — read this VERY carefully):
   The source has ~{src_word_count} words (ignoring tags/labels).
-  TARGET WORD COUNT: aim for {max(1, int(src_word_count * 0.55))} words
-  (about 55% of source). HARD CEILING: you MUST NOT exceed
-  {max(1, int(src_word_count * 0.62))} words under ANY circumstances.
+  TARGET WORD COUNT: aim for {max(1, int(src_word_count * 0.45))} words
+  (about 45% of source). HARD CEILING: you MUST NOT exceed
+  {max(1, int(src_word_count * 0.52))} words under ANY circumstances.
   If you exceed this word count, the audio will fail to sync and sound rushed.
   You MUST aggressively cut non-essential words to hit this limit.
   Drop ALL redundant fillers ("you know", "sort of", "ek", "wo", "aise", "matlab",
@@ -1081,7 +1086,7 @@ LENGTH CONSTRAINT (CRITICAL for dubbing — read this VERY carefully):
   Why: {target_name} syllables take roughly 1.4-1.6x as long to speak as
   English syllables AND Hindi TTS models naturally speak slower than English.
   A direct 85%-word-count translation will ALWAYS run 1.4-1.6x over time budget.
-  You must pre-compensate by targeting only 55% of source word count.
+  You must pre-compensate by targeting only 45% of source word count.
   CUT MERCILESSLY — keep only the core meaning of each line.
 {duration_note}
 
@@ -1414,9 +1419,250 @@ def split_batched_speaker_audio(
     return None
 
 
+def fit_translations_to_timeline(
+    client: genai.Client,
+    analysis: dict,
+    model: str,
+    target_lang: str = "",
+) -> None:
+    """One Gemini call that reviews ALL segments against their time slots.
+
+    Does THREE jobs in one pass:
+      JOB 1 — FIT: rephrase lines that are too long or too short for their slot.
+      JOB 2 — RETAG: replace generic tags ([serious], [amazed]) with precise
+               scene-aware freeform tags based on detected genre + speaker archetype.
+      JOB 3 — SPEED TAGS: prepend [fast] or [very fast] when a line is too dense
+               for its slot even after rephrasing, so Gemini TTS delivers it faster
+               natively instead of requiring post-hoc rubber-banding.
+
+    Runs ALWAYS — even without dubbing — so the retag pass fires on every run.
+    target_lang is optional; if empty, uses the source language from analysis.
+    """
+    segments = analysis.get("segments", [])
+    # Only process segments that have a real duration and text
+    eligible = [
+        seg for seg in segments
+        if (seg.get("tagged_text") or seg.get("text", "")).strip()
+        and (float(seg.get("end", 0.0) or 0.0) - float(seg.get("start", 0.0) or 0.0)) >= 0.4
+    ]
+    if not eligible:
+        return
+
+    # Resolve display name — fall back to source language if no target set
+    effective_lang = target_lang or analysis.get("language", "en-US")
+    target_name = LANG_NAMES.get(effective_lang, effective_lang)
+
+    # ── Pre-compute speed tag needed for each segment ─────────────────────────
+    # Estimate syllables/second required for this line to fit its slot.
+    # Hindi/Hinglish TTS natural rate: ~3.8-4.0 syl/s in conversational delivery.
+    # If the required rate exceeds natural, we inject [fast] or [very fast]
+    # so Gemini delivers it faster natively before any rubber-banding.
+    def _syllable_estimate(text: str) -> float:
+        """Rough syllable count: strip tags, count vowel clusters & Hindi matras."""
+        clean = re.sub(r"\[[^\]]+\]", "", text)
+        return max(1.0, len(re.findall(r"[aeiouyAEIOUYअ-औा-ौ]+", clean)))
+
+    NATURAL_RATE = 3.9   # syllables/second — reduces over-triggering of fast tags
+    speed_tags: dict[int, str] = {}   # eligible index -> tag to prepend (or "")
+    for i, seg in enumerate(eligible):
+        start_s = float(seg.get("start", 0.0) or 0.0)
+        end_s   = float(seg.get("end",   0.0) or 0.0)
+        dur_s   = max(0.1, end_s - start_s)
+        text    = (seg.get("tagged_text") or seg.get("text", "")).strip()
+        syl     = _syllable_estimate(text)
+        needed  = syl / dur_s
+        if needed > NATURAL_RATE * 1.45:      # >45% over natural -> [very fast]
+            speed_tags[i] = "[very fast] "
+        elif needed > NATURAL_RATE * 1.20:    # >20% over natural -> [fast]
+            speed_tags[i] = "[fast] "
+        else:
+            speed_tags[i] = ""
+    genre        = analysis.get("genre", "")
+    scene_desc   = analysis.get("scene_description", "")
+
+    # Build a numbered list of all segments with their time slots
+    lines_block = []
+    for i, seg in enumerate(eligible):
+        start_s  = float(seg.get("start", 0.0) or 0.0)
+        end_s    = float(seg.get("end",   0.0) or 0.0)
+        dur_s    = max(0.0, end_s - start_s)
+        speaker  = seg.get("speaker", f"Speaker{i+1}")
+        text     = (seg.get("tagged_text") or seg.get("text", "")).strip()
+        spd      = speed_tags.get(i, "")
+        hint     = f"  ← TIGHT SLOT: prepend {spd.strip()} tag" if spd else ""
+        lines_block.append(
+            f'[{i+1}] speaker="{speaker}" slot={dur_s:.2f}s{hint}\n{text}'
+        )
+
+    segments_text = "\n\n".join(lines_block)
+
+    scene_note = ""
+    if genre:
+        scene_note = f"Scene type: {genre}"
+        if scene_desc:
+            scene_note += f" — {scene_desc}"
+
+    # Pull the speaker profiles so Gemini knows each character's archetype
+    speakers_info = analysis.get("speakers", [])
+    speaker_profiles = ""
+    if speakers_info:
+        lines = []
+        for s in speakers_info:
+            name      = s.get("name", "?")
+            archetype = s.get("character_archetype", "")
+            style     = s.get("style_direction", "")
+            lines.append(f"  {name}: {archetype}. {style}")
+        speaker_profiles = "SPEAKER PROFILES:\n" + "\n".join(lines)
+
+    prompt = f"""You are a dubbing editor doing a final timeline-fit AND audio-tag refinement pass.
+The translated {target_name} dialogue below has already been translated.
+You have TWO jobs — do BOTH for every segment:
+
+  JOB 1 — FIT: Rephrase lines that will not fit their time slot.
+  JOB 2 — RETAG: Replace every generic tag with a precise scene-aware freeform tag.
+
+{'SCENE: ' + scene_note if scene_note else ''}
+{speaker_profiles}
+
+================================================================
+JOB 1 — TIMELINE FIT RULES
+================================================================
+
+TIMING GUIDE — approximate speaking time for {target_name} TTS:
+  ~3-4 syllables/second at normal pace (Hindi runs slower than English)
+  Short slot (< 1.5s) : max ~3-5 words
+  Medium slot (1.5-4s): ~6-15 words
+  Long slot (4-8s)    : ~15-30 words
+  Very long slot (>8s): ~30-45 words
+
+TOO LONG (line clearly overshoots its slot):
+  → Rephrase shorter. Keep the CORE MEANING.
+  → Cut filler, compress clauses, use Hinglish contractions.
+  → Do NOT cut so hard that meaning changes.
+
+TOO SHORT (slot is much longer than the line needs):
+  → Add a natural trailing "..." OR rephrase slightly to fill time.
+  → Do NOT pad with meaningless words.
+
+ALREADY FITS: return the line unchanged (tags may still be updated by Job 2).
+
+================================================================
+JOB 2 — SCENE-AWARE AUDIO TAG RULES
+================================================================
+
+REPLACE every generic single-word tag ([serious], [amazed], [sad] etc.)
+with a PRECISE FREEFORM TAG that fits this EXACT scene, speaker, and moment.
+
+TAG CONSTRUCTION RULES:
+  • Pattern: [like X] or [as if Y] or [adjective, adjective, like Z]
+  • The tag should describe the CHARACTER + EMOTION + CONTEXT together.
+  • It must match the SCENE TYPE detected: {genre or 'unknown'}
+  • It must match the SPEAKER'S ARCHETYPE and their role in this moment.
+  • Multi-word freeform tags always beat single-word tags for naturalness.
+
+SCENE-GENRE TAG GUIDE — use tags that fit THIS genre:
+{GENRE_TAG_STYLE}
+
+GOOD vs BAD EXAMPLES by scene type:
+  emotional_drama (breakup/confession scene):
+    BAD:  [sad] Haan, ho gaye alag.
+    GOOD: [like someone saying something painful they've already accepted] Haan, ho gaye alag.
+
+  courtroom_legal:
+    BAD:  [serious] Aapne kitni baar testify kiya?
+    GOOD: [like a prosecutor pressing a reluctant witness] Aapne kitni baar testify kiya?
+
+  casual_friends:
+    BAD:  [excited] Yaar sach mein?
+    GOOD: [like someone who just heard shocking gossip from their best friend] Yaar sach mein?
+
+  action_thriller:
+    BAD:  [fast] Bhaago abhi!
+    GOOD: [breathlessly, like someone who just escaped something terrifying] Bhaago abhi!
+
+  family_conversation:
+    BAD:  [firmly] Ghar aa jao.
+    GOOD: [like a parent scolding a child they still deeply love] Ghar aa jao.
+
+NON-SPEECH TAGS ([laughs], [sigh], [gasp] etc.):
+  Keep these ONLY if they were already present AND match what was heard.
+  Do NOT invent them.
+
+PACE TAGS ([fast], [slow], [very fast] etc.):
+  Keep if present and appropriate for the scene. Remove if they contradict
+  the character's delivery in this moment.
+
+TAG PERSISTENCE RULE:
+  If a speaker's freeform tag applies across multiple sentences in the same
+  segment, repeat it on EVERY sentence — do NOT drop it after the first line.
+  WRONG:  [like a prosecutor pressing a witness] First line. Second line.
+  RIGHT:  [like a prosecutor pressing a witness] First line. [like a prosecutor pressing a witness] Second line.
+
+LANGUAGE OF TAGS: ALL tags must be in ENGLISH even if the dialogue is {target_name}.
+
+================================================================
+SEGMENTS TO REVIEW (fit + retag both)
+================================================================
+
+{segments_text}
+
+================================================================
+OUTPUT FORMAT
+================================================================
+Return a JSON object — one entry per segment number in order.
+Return EVERY segment (even unchanged ones so the index mapping stays correct):
+{{
+  "segments": [
+    {{"index": 1, "tagged_text": "...fitted and retagged line..."}},
+    {{"index": 2, "tagged_text": "..."}},
+    ...
+  ]
+}}
+Return ONLY the JSON. No markdown, no commentary.
+"""
+
+    print(f"[fit-to-timeline] reviewing {len(eligible)} segments for timeline fit ...")
+
+    def _call():
+        return client.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+            ),
+        )
+
+    try:
+        response = _call_with_retry(_call, "fit_translations_to_timeline")
+        raw = response.text.strip()
+        result = json.loads(raw)
+        updated = result.get("segments", [])
+        # Apply updates back to the eligible segments (1-indexed in prompt)
+        for entry in updated:
+            idx_1based = entry.get("index")
+            new_text   = (entry.get("tagged_text") or "").strip()
+            if not idx_1based or not new_text:
+                continue
+            seg = eligible[idx_1based - 1]
+            old_text = seg.get("tagged_text", "")
+            if new_text != old_text:
+                seg["tagged_text"] = new_text
+                speaker = seg.get("speaker", "?")
+                dur_s = max(0.0, float(seg.get("end", 0.0) or 0.0) - float(seg.get("start", 0.0) or 0.0))
+                print(f"  [fit] seg {idx_1based} ({speaker}, {dur_s:.1f}s): rephrased")
+                print(f"    before: {old_text[:80]}{'...' if len(old_text) > 80 else ''}")
+                print(f"    after : {new_text[:80]}{'...' if len(new_text) > 80 else ''}")
+        print(f"[fit-to-timeline] done.")
+    except Exception as exc:
+        # Non-fatal — if this pass fails, we still have the original translations
+        print(f"[fit-to-timeline] WARN: failed ({exc}). Proceeding with original translations.")
+
+
 def translate_segments_in_place(client: genai.Client, analysis: dict,
                                 target_lang: str, model: str) -> bool:
-    """Translate each segment's tagged_text in-place. Returns True if it ran."""
+    """Translate each segment's tagged_text in-place, then run a timeline-fit
+    pass to rephrase any line that is too long or too short for its slot.
+    Returns True if translation ran."""
     src_lang = analysis.get("language", "en-US")
     if not target_lang or target_lang == src_lang:
         return False
@@ -1438,6 +1684,12 @@ def translate_segments_in_place(client: genai.Client, analysis: dict,
         seg["tagged_text"] = translated
         snippet = translated[:60] + ("..." if len(translated) > 60 else "")
         print(f"  [{i+1}/{len(segments)}] {seg.get('speaker', '?')}: {snippet}")
+
+    # ── Timeline-fit pass: rephrase lines that are too long or too short ──────
+    # One extra Gemini call that sees all segments + their slot durations at once,
+    # and rephrases without changing meaning. Non-fatal if it fails.
+    fit_translations_to_timeline(client, analysis, model, target_lang)
+
     return True
 
 
@@ -1594,6 +1846,22 @@ def _synthesize_one_speaker_batch(
         print(f"[speaker-batch] split failed for {speaker_name}; will fall back to per-segment.")
         return {}
 
+    # ── Validate split quality: reject the batch if any chunk is badly mis-sized ──
+    # A proportional-split fallback can put the wrong words in the wrong slot when
+    # the batch WAV total duration differs significantly from the sum of targets.
+    # Catching that here ensures _build_aligned_timeline only receives good clips.
+    for (idx, seg), chunk in zip(batch_items, split_chunks):
+        expected_s = max(0.05, float(seg.get("end", 0.0) or 0.0) - float(seg.get("start", 0.0) or 0.0))
+        actual_s   = len(chunk) / 1000.0
+        ratio      = actual_s / expected_s
+        if ratio < 0.40 or ratio > 2.5:
+            print(
+                f"[speaker-batch] REJECT: chunk for seg {idx} is {actual_s:.2f}s "
+                f"vs expected {expected_s:.2f}s (ratio={ratio:.2f} out of [0.40, 2.50]). "
+                f"Batch split is unreliable — falling back to per-segment for {speaker_name}."
+            )
+            return {}
+
     print(f"[speaker-batch] split success for {speaker_name}: {len(split_chunks)} chunks")
     result: dict[int, Path] = {}
     for (idx, _), chunk in zip(batch_items, split_chunks):
@@ -1601,6 +1869,133 @@ def _synthesize_one_speaker_batch(
         chunk.export(chunk_wav, format="wav")
         result[idx] = chunk_wav
     return result
+
+
+def _align_clip_to_slot(
+    clip: AudioSegment,
+    slot_ms: int,
+    *,
+    fade_out_ms: int = 60,
+) -> AudioSegment:
+    """Fit `clip` into exactly `slot_ms` milliseconds — pure pydub, no API calls.
+
+    Three cases handled entirely in Python/pydub:
+
+    Case A — clip is already within ±50ms of slot  →  pad/trim trivially.
+    Case B — clip is SHORTER than slot             →  right-pad with silence.
+    Case C — clip is LONGER than slot:
+        C1  overshoot ≤ 800ms  →  trim with a short fade-out so the cut isn't
+                                   abrupt (the tail is typically trailing breath
+                                   or residual decay, not speech).
+        C2  overshoot >  800ms →  keep as much speech as possible by applying a
+                                   time-domain hard cut at exactly slot_ms with
+                                   a fade-out, accepting the loss.  A warning is
+                                   printed so the caller knows to fix the
+                                   translation/speed-match upstream.
+
+    The result is ALWAYS exactly slot_ms long — callers can overlay without
+    checking duration, and clips from different speakers will never bleed into
+    each other's timestamp windows.
+    """
+    clip_ms = len(clip)
+    if slot_ms <= 0:
+        return AudioSegment.silent(duration=max(1, clip_ms))
+
+    delta = slot_ms - clip_ms          # positive = we need to pad, negative = we need to trim
+
+    # ── Case A: already close enough ──────────────────────────────────────────
+    if abs(delta) <= 50:
+        if delta > 0:
+            return clip + AudioSegment.silent(duration=delta)
+        return clip[:slot_ms]
+
+    # ── Case B: pad with silence ───────────────────────────────────────────────
+    if delta > 0:
+        return clip + AudioSegment.silent(duration=delta)
+
+    # ── Case C: clip is longer than slot ──────────────────────────────────────
+    overshoot_ms = -delta
+    fade_ms = min(fade_out_ms, overshoot_ms, slot_ms // 4)
+
+    if overshoot_ms > 800:
+        print(
+            f"[align-slot] WARN: clip is {clip_ms}ms but slot is only {slot_ms}ms "
+            f"(overshoot={overshoot_ms}ms > 800ms). Hard-trimming with {fade_ms}ms fade. "
+            f"Consider shortening the translation or raising --max-speed-match."
+        )
+
+    # Trim and apply fade-out so the cut doesn't produce a click
+    trimmed = clip[:slot_ms]
+    if fade_ms > 0:
+        trimmed = trimmed.fade_out(fade_ms)
+    return trimmed
+
+
+def _build_aligned_timeline(
+    seg_wavs: list[tuple[dict, Path]],
+    total_ms: int,
+) -> AudioSegment:
+    """Place every per-speaker clip onto a silent timeline at its correct position.
+
+    Pure pydub — no API calls.
+
+    Design goals:
+      1. Each clip occupies exactly its [start, end] slot (via _align_clip_to_slot).
+         This guarantees no bleed: a Speaker2 clip that was oversized can no longer
+         spill into Speaker3's window.
+      2. Clips are written in chronological order so that when two speakers have
+         genuinely overlapping windows in the source (cross-talk), the LATER
+         speaker's line sits on top (the natural mix behaviour of pydub overlay).
+      3. Detailed per-clip logging so every placement is auditable without running
+         the audio through an API.
+
+    Returns a single AudioSegment of exactly `total_ms` duration.
+    """
+    timeline = AudioSegment.silent(duration=total_ms)
+
+    # Sort by start time — ensures deterministic ordering for overlaps
+    ordered = sorted(
+        seg_wavs,
+        key=lambda pair: float(pair[0].get("start", 0.0) or 0.0),
+    )
+
+    for seg, seg_wav in ordered:
+        start_s  = float(seg.get("start", 0.0) or 0.0)
+        end_s    = float(seg.get("end",   0.0) or 0.0)
+        speaker  = seg.get("speaker", "?")
+
+        start_ms = int(round(start_s * 1000))
+        slot_ms  = max(1, int(round((end_s - start_s) * 1000)))
+
+        raw_clip = AudioSegment.from_wav(seg_wav)
+        raw_ms   = len(raw_clip)
+
+        # Fit the clip exactly into its designated slot — pure Python
+        fitted   = _align_clip_to_slot(raw_clip, slot_ms)
+
+        # Clamp start so we never write past the end of the timeline
+        if start_ms >= total_ms:
+            print(
+                f"[timeline] SKIP {speaker} @ {start_s:.2f}s — "
+                f"start is past total duration {total_ms/1000:.2f}s"
+            )
+            continue
+
+        # Clamp fitted clip if it would run past the timeline end
+        available_ms = total_ms - start_ms
+        if len(fitted) > available_ms:
+            fitted = fitted[:available_ms]
+
+        timeline = timeline.overlay(fitted, position=start_ms)
+
+        fit_ms = len(fitted)
+        status = "OK" if abs(fit_ms - slot_ms) <= 50 else f"TRIMMED to {fit_ms}ms"
+        print(
+            f"[timeline] {speaker:12s} @ {start_s:.2f}-{end_s:.2f}s  "
+            f"raw={raw_ms}ms  slot={slot_ms}ms  placed={fit_ms}ms  [{status}]"
+        )
+
+    return timeline
 
 
 def synthesize_segments_to_timeline(
@@ -1658,6 +2053,72 @@ def synthesize_segments_to_timeline(
         total_ms = int(round(last_end * 1000)) + 500
     print(f"[timeline] total length = {total_ms / 1000.0:.2f}s  ({len(segments)} segments)")
 
+    # ── Pre-phase: merge segments that are too short to synthesize cleanly ────
+    # A segment under 0.4s cannot hold a full TTS render — but its text may be
+    # a crucial one-word reply ("No.", "Yes.", "Bas.") that matters to the scene.
+    # Strategy: append the short segment's text onto the nearest same-speaker
+    # neighbour (prefer the immediately preceding segment of the SAME speaker;
+    # fall back to the next same-speaker segment). Never merge across speakers.
+    # The merged segment keeps the earlier start and later end so it covers
+    # the full combined time window.
+    MIN_SEG_DUR = 0.4   # seconds — below this a segment is "too short"
+
+    def _merge_short_segments(segs: list) -> list:
+        if not segs:
+            return segs
+        changed = True
+        while changed:
+            changed = False
+            for i, seg in enumerate(segs):
+                start_s = float(seg.get("start", 0.0) or 0.0)
+                end_s   = float(seg.get("end",   0.0) or 0.0)
+                dur     = max(0.0, end_s - start_s)
+                if dur >= MIN_SEG_DUR:
+                    continue
+                text    = (seg.get("tagged_text") or seg.get("text", "")).strip()
+                speaker = seg.get("speaker", "")
+                # Find best merge target: same-speaker neighbour, closest first
+                candidates = []
+                if i > 0:
+                    candidates.append((i - 1, segs[i - 1].get("speaker") == speaker))
+                if i < len(segs) - 1:
+                    candidates.append((i + 1, segs[i + 1].get("speaker") == speaker))
+                candidates = [c for c in candidates if c[1]]
+                # Sort: same-speaker first, then by proximity
+                candidates.sort(key=lambda x: (not x[1], abs(x[0] - i)))
+                if not candidates:
+                    continue  # no same-speaker neighbour — leave, handled later
+                target_idx = candidates[0][0]
+                target = segs[target_idx]
+                t_start = float(target.get("start", 0.0) or 0.0)
+                t_end   = float(target.get("end",   0.0) or 0.0)
+                t_text  = (target.get("tagged_text") or target.get("text", "")).strip()
+                # Append text direction-aware
+                if target_idx < i:
+                    merged_text = f"{t_text} {text}".strip() if t_text else text
+                else:
+                    merged_text = f"{text} {t_text}".strip() if t_text else text
+                # Expand target time window
+                target["tagged_text"] = merged_text
+                target["text"]        = re.sub(r"\[[^\]]+\]", "", merged_text).strip()
+                target["start"]       = min(t_start, start_s)
+                target["end"]         = max(t_end,   end_s)
+                direction  = "preceding" if target_idx < i else "following"
+                same_spk   = "same-speaker" if segs[target_idx].get("speaker") == speaker else "different-speaker"
+                short_spk  = seg.get("speaker", "?")
+                print(
+                    f"[merge-short] seg {i+1} ({short_spk}, {dur:.2f}s) "
+                    f"merged into seg {target_idx+1} ({direction} {same_spk}). "
+                    f'Text appended: "{text[:60]}"'
+                )
+                segs.pop(i)
+                changed = True
+                break   # restart scan after mutation
+        return segs
+
+    segments = _merge_short_segments(list(segments))
+    print(f"[timeline] after merge-short: {len(segments)} segments remain")
+
     def _resolve_voice(speaker_name: str) -> str:
         if voice_override:
             return voice_override
@@ -1685,7 +2146,7 @@ def synthesize_segments_to_timeline(
                 continue
             seg_prepared = {**seg, "tagged_text": dub_tighten_tags(text)} if apply_tighten else seg
             items.append((idx, seg_prepared))
-        if len(items) >= 2:
+        if False:  # Disabled batching to prevent misplaced dialogue
             batchable[speaker_name] = items
 
     # ── Phase 2: fire all speaker-batch TTS calls concurrently ───────────────
@@ -1740,12 +2201,19 @@ def synthesize_segments_to_timeline(
         last_end_ms = int(round(end_s * 1000))
 
         if seg_dur < 0.4:
-            print(f"[timeline] skip seg {i+1} ({speaker_name}) — dur {seg_dur:.2f}s < 0.4s")
+            # Should not reach here after _merge_short_segments — but kept as
+            # a safety net for truly un-mergeable orphan segments (no neighbours).
+            print(f"[timeline] skip seg {i+1} ({speaker_name}) — dur {seg_dur:.2f}s too short "
+                  f"and could not be merged (no valid neighbour found).")
             continue
 
         text = seg.get("tagged_text") or seg.get("text", "")
-        if not text.strip():
-            print(f"[timeline] skip seg {i+1} ({speaker_name}) — empty text")
+        # Guard against instruction/punctuation-only segments (e.g. ".", "[music]").
+        # Gemini may return an empty audio payload for these, so treat them as silence.
+        spoken_probe = re.sub(r"\[[^\]]+\]|\([^)]+\)", " ", text)
+        spoken_probe = re.sub(r"[^\w\u0900-\u097F]+", "", spoken_probe, flags=re.UNICODE)
+        if not spoken_probe.strip():
+            print(f"[timeline] skip seg {i+1} ({speaker_name}) — non-speakable text: {text[:80]!r}")
             continue
 
         voice = _resolve_voice(speaker_name)
@@ -1861,14 +2329,14 @@ def synthesize_segments_to_timeline(
             "Check the analysis output."
         )
 
-    # ── Phase 4: mix all clips onto a silent timeline ─────────────────────────
-    print(f"\n[timeline] overlaying {len(seg_wavs)} clips onto "
-          f"{total_ms / 1000:.2f}s silence ...")
-    mixed = AudioSegment.silent(duration=total_ms)
-    for seg, seg_wav in seg_wavs:
-        clip = AudioSegment.from_wav(seg_wav)
-        position = int(round(float(seg.get("start", 0.0) or 0.0) * 1000))
-        mixed = mixed.overlay(clip, position=position)
+    # ── Phase 4: align every clip to its slot and mix onto a silent timeline ─────
+    # Pure Python/pydub — no API calls.
+    # _build_aligned_timeline ensures every clip is hard-fitted to its
+    # [start, end] window before overlay, so oversized clips from one speaker
+    # can never bleed into the next speaker's timestamp slot.
+    print(f"\n[timeline] aligning {len(seg_wavs)} clips onto "
+          f"{total_ms / 1000:.2f}s timeline ...")
+    mixed = _build_aligned_timeline(seg_wavs, total_ms)
 
     # Write to the caller-specified audio_out path (main.py expects final.wav there)
     audio_out.parent.mkdir(parents=True, exist_ok=True)
@@ -1905,11 +2373,13 @@ def main() -> None:
         help="Only run step 3 (analysis); skip TTS")
     parser.add_argument("--no-speed-match", action="store_true",
         help="Skip auto-matching TTS duration to source (via ffmpeg rubberband)")
-    parser.add_argument("--max-speed-match", type=float, default=1.2,
-        help="Max rubberband tempo for duration matching (default: 1.2). "
+    parser.add_argument("--max-speed-match", type=float, default=1.12,
+        help="Max rubberband tempo for duration matching (default: 1.12). "
              "Higher values match tighter but can sound rushed.")
+    parser.add_argument("--dub-tighten", action="store_true",
+        help="When dubbing, aggressively strip [slow]/pause tags to force tighter timing (can sound rushed)")
     parser.add_argument("--no-dub-tighten", action="store_true",
-        help="When dubbing, don't auto-strip [slow] and downgrade pause tags")
+        help="Legacy safety switch; keeps pause/slow tags when dubbing")
     parser.add_argument("--no-exact-duration", action="store_true",
         help="Skip final pad/trim that snaps the WAV to source duration exactly")
     parser.add_argument("--mux", action="store_true",
@@ -2084,8 +2554,18 @@ def main() -> None:
                 print(f"\n  Translated tagged transcript:")
                 print(f"    {tagged[:400]}{'...' if len(tagged) > 400 else ''}")
 
+    # Always run segment timeline-fit + retag + speed-tag pass in per-segment mode
+    # (even when no dubbing is requested), so generic analysis tags are refined.
+    if use_segments and not is_dubbing:
+        fit_translations_to_timeline(client, analysis, args.model, args.target_lang or "")
+
     # ── dub-aware tightening ──
-    apply_tighten = is_dubbing and not args.no_dub_tighten
+    # Natural pacing default: tightening is opt-in because stripping pauses
+    # often makes dialogue sound breathless/rushed.
+    apply_tighten = is_dubbing and args.dub_tighten and not args.no_dub_tighten
+    # In dubbing mode, avoid hard snap-to-duration by default; preserving
+    # natural phrase endings generally sounds better than exact truncation.
+    effective_no_exact_duration = args.no_exact_duration or is_dubbing
     if apply_tighten and not use_segments:
         # For per-segment mode, tightening is applied right before each
         # segment's TTS call inside synthesize_segments_to_timeline().
@@ -2120,7 +2600,7 @@ def main() -> None:
             voice_override=args.voice,
             no_speed_match=args.no_speed_match,
             max_speed_match=args.max_speed_match,
-            no_exact_duration=args.no_exact_duration,
+            no_exact_duration=effective_no_exact_duration,
         )
     else:
         # ── build TTS input (legacy <=2 speaker path) ──
@@ -2251,7 +2731,7 @@ def main() -> None:
             except Exception as exc:
                 print(f"[speed-match] skipped due to error: {exc}")
 
-        if not args.no_exact_duration and target_dur is not None:
+        if not effective_no_exact_duration and target_dur is not None:
             try:
                 force_exact_duration(audio_out, target_dur)
             except Exception as exc:

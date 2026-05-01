@@ -283,7 +283,7 @@ GEMINI_SECONDS_PER_BLOCK        = float(os.getenv("GEMINI_SECONDS_PER_BLOCK", "4
 ELEVEN_BASE_URL                     = os.getenv("ELEVEN_BASE_URL", "https://api.elevenlabs.io")
 ELEVEN_DUBBING_POLL_INTERVAL_SECONDS = float(os.getenv("ELEVEN_DUBBING_POLL_INTERVAL_SECONDS", "4"))
 ELEVEN_DUBBING_TIMEOUT_SECONDS      = int(os.getenv("ELEVEN_DUBBING_TIMEOUT_SECONDS", "600"))
-
+ELEVEN_STT_DIARIZATION_THRESHOLD = float(os.getenv("ELEVEN_STT_DIARIZATION_THRESHOLD", "0.10"))
 GEMINI_MODEL                = os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
 GEMINI_TRANSLATE_MODEL      = os.getenv("GEMINI_TRANSLATE_MODEL", "gemini-2.5-pro")
 GEMINI_MAX_WORKERS          = int(os.getenv("GEMINI_MAX_WORKERS", "1"))
@@ -291,6 +291,7 @@ GEMINI_RETRY_ATTEMPTS       = int(os.getenv("GEMINI_RETRY_ATTEMPTS", "5"))
 GEMINI_RETRY_BASE_SECONDS   = float(os.getenv("GEMINI_RETRY_BASE_SECONDS", "2.0"))
 GEMINI_RETRY_MAX_SECONDS    = float(os.getenv("GEMINI_RETRY_MAX_SECONDS", "45.0"))
 GEMINI_MIN_LENGTH_RATIO     = float(os.getenv("GEMINI_MIN_LENGTH_RATIO", "0.75"))
+WEB_DUB_TIGHTEN_DEFAULT     = os.getenv("WEB_DUB_TIGHTEN_DEFAULT", "0").strip().lower() in ("1", "true", "yes", "on")
 
 # ElevenLabs STT model — use the scribe_v1 diarization model
 ELEVEN_STT_MODEL = os.getenv("ELEVEN_STT_MODEL", "scribe_v1")
@@ -789,7 +790,8 @@ def call_gemini_for_transcript_enhancement(
     if not GEMINI_API_KEY:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured.")
 
-    target_label = GEMINI_LANGUAGE_NAMES.get(target_lang, target_lang)
+    tgt = normalize_lang_code(target_lang)
+    target_label = GEMINI_LANGUAGE_NAMES.get(tgt, target_lang)
     source_label = GEMINI_LANGUAGE_NAMES.get(source_lang, source_lang)
 
     prompt = f"""
@@ -818,18 +820,16 @@ Follow the official Gemini speech-generation prompting guide.
 - Output text MUST stay in {target_label}.
 - Audio tags MUST be in English, in square brackets, even when the line is not English.
 
-# Audio Tags (canonical set — pick the most fitting; use sparingly, 0-3 per line)
-Emotion / tone:
-  [amazed], [bored], [crying], [curious], [excited], [excitedly], [happily],
-  [mischievously], [panicked], [reluctantly], [sarcastic], [sarcastically],
-  [serious], [tired], [trembling]
-Vocal action:
-  [sighs], [gasp], [giggles], [laughs], [shouts], [shouting], [whispers], [cough]
-Pacing:
-  [very fast], [very slow]
+# Audio Tags
+- IMPORTANT: Use PRECISE, FREEFORM descriptive tags that describe the character, emotion, and context together.
+- Multi-word freeform tags always beat single-word tags for naturalness.
+- Pattern: [like X] or [as if Y] or [adjective, adjective, like Z]
+- Examples: [like a parent scolding a child they still deeply love], [playfully teasing, with a grin in the voice], [breathlessly, like someone who just escaped something terrifying], [like someone saying something painful they've already accepted].
+- Vocal actions like [sighs] or [laughs] can be used ONLY if clearly audible in the reference audio.
+- Pace tags like [fast] or [very fast] can be included if the translated text feels too long to fit the audio clip naturally.
 
 Place tags at the start of the line, or inline immediately before the phrase they
-modify, e.g.: "[amazed] Wow, [whispers] I didn't see that coming."
+modify, e.g.: "[like someone quietly begging not to be judged] I did what I had to do."
 
 # Translated line
 {text}
@@ -904,7 +904,8 @@ def call_gemini_translate_and_tag(
     if not GEMINI_API_KEY:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured.")
 
-    target_label = GEMINI_LANGUAGE_NAMES.get(target_lang, target_lang)
+    tgt = normalize_lang_code(target_lang)
+    target_label = GEMINI_LANGUAGE_NAMES.get(tgt, target_lang)
     source_label = (
         "the source language (auto-detect from audio)"
         if not source_lang or source_lang.lower() == "auto"
@@ -939,18 +940,16 @@ Follow the official Gemini speech-generation prompting guide.
 - Audio tags MUST be in English, in square brackets, even when the line is not English.
 - If the source line is already in {target_label}, just add audio tags.
 
-# Audio Tags (canonical set — pick the most fitting; use sparingly, 0-3 per line)
-Emotion / tone:
-  [amazed], [bored], [crying], [curious], [excited], [excitedly], [happily],
-  [mischievously], [panicked], [reluctantly], [sarcastic], [sarcastically],
-  [serious], [tired], [trembling], [warmly], [coldly]
-Vocal action:
-  [sighs], [gasp], [giggles], [laughs], [shouts], [shouting], [whispers], [cough]
-Pacing:
-  [very fast], [very slow]
+# Audio Tags
+- IMPORTANT: Use PRECISE, FREEFORM descriptive tags that describe the character, emotion, and context together.
+- Multi-word freeform tags always beat single-word tags for naturalness.
+- Pattern: [like X] or [as if Y] or [adjective, adjective, like Z]
+- Examples: [like a parent scolding a child they still deeply love], [playfully teasing, with a grin in the voice], [breathlessly, like someone who just escaped something terrifying], [like someone saying something painful they've already accepted].
+- Vocal actions like [sighs] or [laughs] can be used ONLY if clearly audible in the reference audio.
+- Pace tags like [fast] or [very fast] can be included if the translated text feels too long to fit the audio clip naturally.
 
 Place tags at the start of the line, or inline immediately before the phrase
-they modify, e.g.: "[amazed] Wow, [whispers] I didn't see that coming."
+they modify, e.g.: "[like someone quietly begging not to be judged] I did what I had to do."
 
 # Source line ({source_label})
 {source_text}
@@ -1195,7 +1194,9 @@ def _synthesize_batched_per_speaker_sync(
         speakers: Dict[str, Dict[str, Any]] = {}
         for idx, block in enumerate(blocks):
             text = (block.get("transcript") or "").strip()
-            if not text:
+            # Skip instruction-only segments (e.g. "(long pause)" or "[music]")
+            # so TTS never attempts to "speak" non-dialogue control notes.
+            if (not text) or (text.startswith("(") and text.endswith(")")) or (text.startswith("[") and text.endswith("]")):
                 continue
             raw_speakers = block.get("speakers") or []
             spk   = str(raw_speakers[0]) if raw_speakers else f"S{idx+1}"
@@ -1293,11 +1294,11 @@ def _synthesize_batched_per_speaker_sync(
         lang_tag="",
         target_dur=target_dur_s,
         is_dubbing=is_dubbing,
-        apply_tighten=is_dubbing,
+        apply_tighten=is_dubbing and WEB_DUB_TIGHTEN_DEFAULT,
         voice_override=None,
         no_speed_match=False,
-        max_speed_match=1.2,
-        no_exact_duration=False,
+        max_speed_match=1.12,
+        no_exact_duration=is_dubbing,
     )
 
     # Step 5: mux back onto original video if present
@@ -1688,6 +1689,68 @@ async def translate_text(req: TranslateRequest):
             if error_text:
                 failed_blocks.append({"index": idx, "error": error_text})
 
+    # ── Timeline-fit pass for web UI preview ─────────────────────────────────
+    # Run fitting before returning translated blocks so users review the same
+    # tightened/tagged text that will be used downstream for dubbing.
+    if use_audio_tagging and req.target_lang != req.source_lang:
+        print("\n[Web Translate] Running timeline-fit pass to shorten text for UI...")
+        from google import genai as _genai
+
+        client = _genai.Client(api_key=GEMINI_API_KEY)
+
+        # Map translated blocks into the analysis shape expected by
+        # fit_translations_to_timeline, while tracking original block indexes.
+        fake_analysis: Dict[str, Any] = {"language": req.source_lang, "segments": []}
+        segment_to_block_index: List[int] = []
+
+        for block_idx, block in enumerate(translated_blocks):
+            if not block:
+                continue
+            tagged = (block.get("tagged_transcript") or block.get("transcript") or "").strip()
+            if not tagged:
+                continue
+            timestamps = block.get("timestamps") or []
+            start_s = float(timestamps[0]) if isinstance(timestamps, list) and len(timestamps) > 0 else 0.0
+            end_s = float(timestamps[1]) if isinstance(timestamps, list) and len(timestamps) > 1 else (start_s + 2.0)
+            if end_s <= start_s:
+                end_s = start_s + 2.0
+            speakers = block.get("speakers") or []
+            speaker = str(speakers[0]) if speakers else "S0"
+            fake_analysis["segments"].append({
+                "start": start_s,
+                "end": end_s,
+                "speaker": speaker,
+                "text": block.get("transcript", ""),
+                "tagged_text": tagged,
+            })
+            segment_to_block_index.append(block_idx)
+
+        if fake_analysis["segments"]:
+            try:
+                gemini_seg.fit_translations_to_timeline(
+                    client=client,
+                    analysis=fake_analysis,
+                    model=GEMINI_TRANSLATE_MODEL,
+                    target_lang=req.target_lang,
+                )
+
+                # Map fitted text back into outgoing blocks.
+                for seg_idx, seg in enumerate(fake_analysis["segments"]):
+                    block_idx = segment_to_block_index[seg_idx]
+                    out_block = translated_blocks[block_idx]
+                    if not out_block:
+                        continue
+                    new_text = (seg.get("tagged_text") or seg.get("text") or "").strip()
+                    if not new_text:
+                        continue
+                    out_block["transcript"] = new_text
+                    out_block["tagged_transcript"] = new_text
+                    emotion_tags, _ = extract_emotion_tags_and_clean_text(new_text)
+                    out_block["emotion_tags"] = emotion_tags
+            except Exception as e:
+                print(f"[Web Translate] Timeline fit pass failed (falling back to raw translation): {e}")
+                traceback.print_exc()
+
     translation_processing_seconds = time.perf_counter() - t_translate0
 
     return JSONResponse(content={
@@ -2043,3 +2106,27 @@ async def get_video(session_id: str):
     if os.path.exists(file_path):
         return FileResponse(file_path, media_type="video/mp4")
     raise HTTPException(status_code=404, detail="Video not found")
+
+
+@app.get("/api/session-video/{session_id}")
+async def get_session_video(session_id: str):
+    """Serve original uploaded video for in-app speaker preview."""
+    cleanup_expired_sessions()
+    session_dir = os.path.join(TEMP_DIR, session_id)
+    if not os.path.isdir(session_dir):
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Prefer canonical symlink/path used by pipeline.
+    preferred = os.path.join(session_dir, "input.mp4")
+    if os.path.exists(preferred):
+        return FileResponse(preferred, media_type="video/mp4")
+
+    # Fallback to any uploaded video-like input file.
+    for name in os.listdir(session_dir):
+        if not name.startswith("input."):
+            continue
+        ext = os.path.splitext(name)[1].lower()
+        if ext in {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}:
+            return FileResponse(os.path.join(session_dir, name), media_type="video/mp4")
+
+    raise HTTPException(status_code=404, detail="Session video not found")

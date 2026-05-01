@@ -21,7 +21,7 @@ function fmtTime(s) {
   return m > 0 ? `${m}:${String(Math.floor(s % 60)).padStart(2, '0')}` : `${sec}s`;
 }
 
-export default function Stage2Transcript({ apiBase, blocks: initialBlocks, videoFile, sourceLang, onComplete }) {
+export default function Stage2Transcript({ apiBase, blocks: initialBlocks, videoFile, sourceLang, sessionId, onComplete }) {
   const [blocks, setBlocks]           = useState(() => initialBlocks.map((b, i) => ({ ...b, _key: i })));
   const [speakerNames, setSpeakerNames] = useState({});   // { S0: "Narrator", S1: "Guest" }
   const [languages, setLanguages]     = useState(FALLBACK_LANGUAGES);
@@ -31,13 +31,24 @@ export default function Stage2Transcript({ apiBase, blocks: initialBlocks, video
   const [editingName, setEditingName] = useState(null);   // speaker id being renamed
   const [nameInput, setNameInput]     = useState('');
   const [playingVideo, setPlayingVideo] = useState(false);
-  const [seekTime, setSeekTime]       = useState(0);
   const [previewEndTime, setPreviewEndTime] = useState(null);
+  const [localVideoUrl, setLocalVideoUrl] = useState(null);
   const videoRef    = useRef(null);
   const playTimer   = useRef(null);
-  const videoUrl    = useMemo(() => videoFile ? URL.createObjectURL(videoFile) : null, [videoFile]);
 
-  useEffect(() => () => { if (videoUrl) URL.revokeObjectURL(videoUrl); }, [videoUrl]);
+  useEffect(() => {
+    if (!videoFile) {
+      setLocalVideoUrl(null);
+      return undefined;
+    }
+    const objectUrl = URL.createObjectURL(videoFile);
+    setLocalVideoUrl(objectUrl);
+    return () => {
+      URL.revokeObjectURL(objectUrl);
+    };
+  }, [videoFile]);
+
+  const videoUrl = localVideoUrl || (sessionId ? `${apiBase}/session-video/${sessionId}` : null);
 
   // Fetch Gemini translation languages, filtered to Indian languages only.
   useEffect(() => {
@@ -114,30 +125,47 @@ export default function Stage2Transcript({ apiBase, blocks: initialBlocks, video
     const start = Number.isFinite(t) && t >= 0 ? t : 0;
     const end = Number(first.timestamps?.[1]);
     const safeEnd = Number.isFinite(end) && end > start ? Math.min(end, start + 8) : (start + 5);
-    setSeekTime(start);
     setPreviewEndTime(safeEnd);
     setPlayingVideo(true);
     const video = videoRef.current;
 
-    const startPlayback = () => {
+    const scheduleStop = () => {
+      const previewMs = Math.max(3000, Math.min(8000, (safeEnd - start) * 1000));
+      clearTimeout(playTimer.current);
+      playTimer.current = setTimeout(() => {
+        videoRef.current?.pause();
+        setPlayingVideo(false);
+        setPreviewEndTime(null);
+      }, previewMs);
+    };
+
+    const startPlayback = async () => {
       try {
         video.currentTime = start;
       } catch (_) {
-        // Ignore seek timing race; loadedmetadata handler retries with seekTime.
+        // Ignore seek timing race and let the browser continue loading.
       }
-      video.play().catch(() => {});
+      try {
+        await video.play();
+        scheduleStop();
+      } catch (_) {
+        // If autoplay is blocked, keep modal open so user can press play manually.
+      }
     };
 
     if (video.readyState >= 1) {
-      startPlayback();
+      void startPlayback();
+    } else {
+      const onLoadedMetadata = () => {
+        void startPlayback();
+      };
+      video.addEventListener('loadedmetadata', onLoadedMetadata, { once: true });
+      try {
+        video.load();
+      } catch (_) {
+        // Ignore load failures and allow controls fallback.
+      }
     }
-
-    const previewMs = Math.max(3000, Math.min(8000, (safeEnd - start) * 1000));
-    playTimer.current = setTimeout(() => {
-      videoRef.current?.pause();
-      setPlayingVideo(false);
-      setPreviewEndTime(null);
-    }, previewMs);
   };
 
   const stopPreview = () => {
@@ -145,16 +173,6 @@ export default function Stage2Transcript({ apiBase, blocks: initialBlocks, video
     videoRef.current?.pause();
     setPlayingVideo(false);
     setPreviewEndTime(null);
-  };
-
-  const handleVideoLoadedMetadata = () => {
-    if (!playingVideo || !videoRef.current) return;
-    try {
-      videoRef.current.currentTime = seekTime;
-    } catch (_) {
-      return;
-    }
-    videoRef.current.play().catch(() => {});
   };
 
   const handleVideoTimeUpdate = () => {
@@ -330,7 +348,6 @@ export default function Stage2Transcript({ apiBase, blocks: initialBlocks, video
               controls
               preload="metadata"
               playsInline
-              onLoadedMetadata={handleVideoLoadedMetadata}
               onTimeUpdate={handleVideoTimeUpdate}
             />
           </div>
