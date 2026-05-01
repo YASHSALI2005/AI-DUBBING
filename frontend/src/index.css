@@ -729,6 +729,11 @@ select:focus, input:not([type='checkbox']):focus, textarea:focus {
   gap: 0.35rem;
 }
 
+.translated-table {
+  max-height: min(52vh, 540px);
+  overflow-y: auto;
+}
+
 .tt2-row {
   padding: 0.75rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
@@ -760,6 +765,10 @@ select:focus, input:not([type='checkbox']):focus, textarea:focus {
   gap: 0.45rem;
 }
 
+.tt2-translated .tt-text {
+  max-height: 7.5rem;
+}
+
 .tt-text.tagged {
   border-color: rgba(63, 166, 107, 0.32);
 }
@@ -786,6 +795,15 @@ select:focus, input:not([type='checkbox']):focus, textarea:focus {
   gap: 0.6rem;
 }
 
+.stage3-sticky-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 8;
+  padding: 0.7rem 0;
+  background: linear-gradient(to top, rgba(10, 10, 10, 0.94), rgba(10, 10, 10, 0.75), rgba(10, 10, 10, 0));
+  border-top: 1px solid var(--border-light);
+}
+
 .voice-picker-card {
   border: 1px solid var(--border-light);
   border-radius: 12px;
@@ -799,6 +817,23 @@ select:focus, input:not([type='checkbox']):focus, textarea:focus {
   font-weight: 600;
 }
 
+.voice-picker-toggle {
+  width: 100%;
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-light);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.62rem 0.72rem;
+  cursor: pointer;
+}
+
+.voice-picker-toggle:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
 .voice-picker-grid {
   display: grid;
   gap: 0.55rem;
@@ -806,9 +841,22 @@ select:focus, input:not([type='checkbox']):focus, textarea:focus {
 
 .voice-picker-row {
   display: grid;
-  grid-template-columns: 130px 1fr;
+  grid-template-columns: 130px 1fr auto;
   gap: 0.6rem;
-  align-items: center;
+  align-items: start;
+}
+
+.voice-picker-controls {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.voice-choice-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
 }
 
 @media (max-width: 840px) {
@@ -834,6 +882,10 @@ select:focus, input:not([type='checkbox']):focus, textarea:focus {
     grid-template-columns: 1fr;
   }
 
+  .translated-table {
+    max-height: 46vh;
+  }
+
   .action-row {
     justify-content: stretch;
     flex-direction: column;
@@ -842,6 +894,10 @@ select:focus, input:not([type='checkbox']):focus, textarea:focus {
   .action-row .btn-secondary,
   .action-row .btn-primary {
     width: 100%;
+  }
+
+  .stage3-sticky-actions {
+    padding: 0.65rem 0;
   }
 }
 

@@ -29,7 +29,9 @@ export default function Stage3Translate({
   const [translatedBlocks, setTranslatedBlocks] = useState([]);
   const [editableBlocks, setEditableBlocks]     = useState([]);
   const [showVoicePicker, setShowVoicePicker]   = useState(false);
+  const [voicePickerExpanded, setVoicePickerExpanded] = useState(false);
   const [voiceBySpeaker, setVoiceBySpeaker]     = useState({});
+  const [voicePickerOpenBySpeaker, setVoicePickerOpenBySpeaker] = useState({});
   const [voiceOptions, setVoiceOptions]         = useState([]);
   const [voicesLoading, setVoicesLoading]       = useState(true);
   const [synthesizing, setSynthesizing]         = useState(false);
@@ -116,6 +118,55 @@ export default function Stage3Translate({
 
   const setSpeakerVoice = (speakerId, voice) => {
     setVoiceBySpeaker((prev) => ({ ...prev, [speakerId]: voice }));
+  };
+
+  const VOICE_STYLE_HINTS = {
+    Algenib: 'Gravelly baritone',
+    Orus: 'Firm formal baritone',
+    Charon: 'Polished neutral narrator',
+    Iapetus: 'Clear articulate mid-range',
+    Enceladus: 'Breathy intimate rasp',
+    Fenrir: 'Excitable high-energy',
+    Puck: 'Upbeat cheerful youthful',
+    Umbriel: 'Easy-going laid-back',
+    Algieba: 'Smooth silky',
+    Schedar: 'Even-toned measured',
+    Achird: 'Friendly warm',
+    Zubenelgenubi: 'Casual conversational',
+    Sadachbia: 'Lively animated',
+    Sadaltager: 'Knowledgeable confident authority',
+    Alnilam: 'Firm grounded deep',
+    Rasalgethi: 'Informative articulate',
+    Zephyr: 'Bright clear upbeat',
+    Kore: 'Firm confident',
+    Leda: 'Youthful light',
+    Aoede: 'Breezy relaxed',
+    Callirrhoe: 'Easy-going natural',
+    Autonoe: 'Bright crisp',
+    Despina: 'Smooth velvety',
+    Erinome: 'Clear articulate',
+    Laomedeia: 'Upbeat energetic',
+    Achernar: 'Soft gentle',
+    Gacrux: 'Mature rich',
+    Pulcherrima: 'Bold attention-grabbing',
+    Vindemiatrix: 'Gentle warm mid-range',
+    Sulafat: 'Warm rich friendly',
+  };
+
+  const getVoiceLabel = (voice) => {
+    if (!voice) return 'Auto (recommended)';
+    const styleHint = voice.style || VOICE_STYLE_HINTS[voice.name];
+    const parts = [voice.name];
+    if (voice.gender) parts.push(voice.gender);
+    if (styleHint) parts.push(styleHint);
+    return parts.join(' · ');
+  };
+
+  const getSelectedVoiceLabel = (speakerId) => {
+    const selectedId = voiceBySpeaker[speakerId] || 'auto';
+    if (selectedId === 'auto') return 'Auto (recommended)';
+    const selectedVoice = voiceOptions.find((v) => v.id === selectedId);
+    return getVoiceLabel(selectedVoice);
   };
 
   const handleConfirm = async () => {
@@ -233,7 +284,7 @@ export default function Stage3Translate({
                     <textarea
                       className="tt-text tagged"
                       value={b.tagged_transcript || b.transcript || ''}
-                      rows={Math.max(2, Math.ceil((b.tagged_transcript || '').length / 55))}
+                      rows={Math.min(4, Math.max(2, Math.ceil((b.tagged_transcript || '').length / 70)))}
                       onChange={(e) => updateTaggedTranscript(b._key, e.target.value)}
                     />
                     <TagBadge text={b.tagged_transcript || ''} />
@@ -243,12 +294,18 @@ export default function Stage3Translate({
             })}
           </div>
 
-          <div className="action-row">
+          <div className="action-row stage3-sticky-actions">
             <button className="btn-secondary" onClick={() => { setPhase('idle'); setEditableBlocks([]); }}>
               ← Re-run
             </button>
             {!showVoicePicker ? (
-              <button className="btn-primary" onClick={() => setShowVoicePicker(true)}>
+              <button
+                className="btn-primary"
+                onClick={() => {
+                  setShowVoicePicker(true);
+                  setVoicePickerExpanded(false);
+                }}
+              >
                 <CheckCircle size={18} />
                 Choose Voices →
               </button>
@@ -262,26 +319,69 @@ export default function Stage3Translate({
 
           {showVoicePicker && (
             <div className="voice-picker-card">
-              <div className="voice-picker-title">Choose voice per speaker</div>
-              <div className="voice-picker-grid">
-                {uniqueSpeakers.map((sid) => (
-                  <label key={sid} className="voice-picker-row">
-                    <span>{sid}</span>
-                    <select
-                      value={voiceBySpeaker[sid] || 'auto'}
-                      onChange={(e) => setSpeakerVoice(sid, e.target.value)}
-                    >
-                      <option value="auto">Auto (recommended)</option>
-                      {voiceOptions.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {v.name}{v.gender ? ` (${v.gender})` : ''}
-                        </option>
-                      ))}
-                    </select>
-                    {voicesLoading && <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Loading voices...</span>}
-                  </label>
-                ))}
-              </div>
+              <button
+                type="button"
+                className="voice-picker-toggle"
+                onClick={() => setVoicePickerExpanded((v) => !v)}
+                aria-expanded={voicePickerExpanded}
+              >
+                <span className="voice-picker-title">Choose voice per speaker</span>
+                <span className="lang-picker-caret">{voicePickerExpanded ? '▴' : '▾'}</span>
+              </button>
+              {voicePickerExpanded && (
+                <div className="voice-picker-grid">
+                  {uniqueSpeakers.map((sid) => (
+                    <div key={sid} className="voice-picker-row">
+                      <span>{sid}</span>
+                      <div className="voice-picker-controls">
+                        <button
+                          type="button"
+                          className="lang-picker-trigger"
+                          onClick={() => setVoicePickerOpenBySpeaker((prev) => ({ ...prev, [sid]: !prev[sid] }))}
+                          disabled={voicesLoading}
+                          aria-expanded={!!voicePickerOpenBySpeaker[sid]}
+                          aria-label={`Choose voice for ${sid}`}
+                        >
+                          <span className="voice-choice-label">{getSelectedVoiceLabel(sid)}</span>
+                          <span className="lang-picker-caret">{voicePickerOpenBySpeaker[sid] ? '▴' : '▾'}</span>
+                        </button>
+                        {voicePickerOpenBySpeaker[sid] && (
+                          <div className={`lang-scroll-list ${voicesLoading ? 'disabled' : ''}`} role="listbox" aria-label={`Voice options for ${sid}`}>
+                            <button
+                              type="button"
+                              className={`lang-option ${(voiceBySpeaker[sid] || 'auto') === 'auto' ? 'selected' : ''}`}
+                              onClick={() => {
+                                setSpeakerVoice(sid, 'auto');
+                                setVoicePickerOpenBySpeaker((prev) => ({ ...prev, [sid]: false }));
+                              }}
+                              disabled={voicesLoading}
+                              aria-selected={(voiceBySpeaker[sid] || 'auto') === 'auto'}
+                            >
+                              <span>Auto (recommended)</span>
+                            </button>
+                            {voiceOptions.map((v) => (
+                              <button
+                                key={v.id}
+                                type="button"
+                                className={`lang-option ${voiceBySpeaker[sid] === v.id ? 'selected' : ''}`}
+                                onClick={() => {
+                                  setSpeakerVoice(sid, v.id);
+                                  setVoicePickerOpenBySpeaker((prev) => ({ ...prev, [sid]: false }));
+                                }}
+                                disabled={voicesLoading}
+                                aria-selected={voiceBySpeaker[sid] === v.id}
+                              >
+                                <span>{getVoiceLabel(v)}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {voicesLoading && <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Loading voices...</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </>
