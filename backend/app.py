@@ -42,9 +42,23 @@ load_dotenv()
 
 app = FastAPI()
 
+
+def _cors_allow_origins():
+    """Explicit origins — wildcard is invalid with allow_credentials=True (browser will block)."""
+    raw = os.getenv("CORS_ORIGINS", "").strip()
+    if raw:
+        return [o.strip().rstrip("/") for o in raw.split(",") if o.strip()]
+    return [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_allow_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

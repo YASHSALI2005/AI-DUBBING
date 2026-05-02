@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import axios from 'axios';
+import { API_ORIGIN } from '../apiConfig';
 import { Upload, Zap, CheckCircle, Download, Film, RefreshCw, Loader2, X, Globe2, Mic2, AlertTriangle } from 'lucide-react';
 
 const FALLBACK_LANGUAGES = [
@@ -84,9 +85,8 @@ export default function DirectDub({ apiBase }) {
       const res = await axios.post(`${apiBase}/dub-direct/finalize`, {
         session_id: sid, dubbing_id: did, target_lang: lang,
       });
-      const base = 'http://localhost:8000';
-      setFinalAudioUrl(res.data.audio_url ? `${base}${res.data.audio_url}` : null);
-      setFinalVideoUrl(res.data.video_url ? `${base}${res.data.video_url}` : null);
+      setFinalAudioUrl(res.data.audio_url ? `${API_ORIGIN}${res.data.audio_url}` : null);
+      setFinalVideoUrl(res.data.video_url ? `${API_ORIGIN}${res.data.video_url}` : null);
       setPhase('complete');
     } catch (err) {
       const detail = err?.response?.data?.detail || err.message;

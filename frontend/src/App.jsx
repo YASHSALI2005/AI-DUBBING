@@ -7,8 +7,7 @@ import Login from './components/Login';
 import DirectDub from './components/DirectDub';
 import ProfileMenu from './components/ProfileMenu';
 import Settings from './components/Settings';
-
-const API_BASE = 'http://localhost:8000/api';
+import { API_BASE, API_ORIGIN } from './apiConfig';
 const APP_STATE_KEY  = 'vrfilms_dubbing_state_v1';
 const AUTH_TOKEN_KEY = 'vrfilms_auth_token_v2';
 const AUTH_USER_KEY  = 'vrfilms_auth_user_v2';
@@ -144,8 +143,8 @@ function App() {
   };
 
   const handleSynthesized = (audioUrl, videoUrl) => {
-    setFinalAudioUrl(audioUrl ? `http://localhost:8000${audioUrl}` : null);
-    setFinalVideoUrl(videoUrl ? `http://localhost:8000${videoUrl}` : null);
+    setFinalAudioUrl(audioUrl ? `${API_ORIGIN}${audioUrl}` : null);
+    setFinalVideoUrl(videoUrl ? `${API_ORIGIN}${videoUrl}` : null);
     navigateTo(4);
   };
 

@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Env (local secrets / overrides). Commit .env.example only.
+.env
+.env.*
+!.env.example
